@@ -3,17 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <title>PDF Viewer</title>
-
     <link rel="stylesheet" href="/pdfjs/web/pdf_viewer.css" />
 
     <style>
-      html,
-      body {
+      /* 1. Global Reset */
+      html, body {
         margin: 0;
         padding: 0;
         height: 100%;
         overflow: hidden;
-        background: #fff;
+        background: #e1e1e1;
       }
 
       #viewerContainer {
@@ -22,16 +21,36 @@
         overflow: auto;
       }
 
-      .highlight-layer {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
+      /* 2. LAYERS CONTROL */
+      
+      /* The Page Container */
+      .page {
+        position: relative;
       }
 
+      /* The Text Layer (Invisible text for selection) */
+      .textLayer {
+        opacity: 0.1; /* Invisible but selectable */
+        z-index: 2;
+        mix-blend-mode: multiply;
+      }
+
+      /* THE NEW HIGHLIGHT LAYER */
+      /* This sits exactly where the textLayer sits, but is visible */
+      .custom-highlight-layer {
+        position: absolute;
+        inset: 0; /* Matches parent dimensions exactly */
+        pointer-events: none; /* Let clicks pass through to textLayer */
+        z-index: 1; /* Below text selection, above canvas */
+      }
+
+      /* 3. Highlight Styling */
       .highlight-rect {
         position: absolute;
-        background: rgba(255, 230, 0, 0.45);
-        border-radius: 3px;
+        background: rgba(255, 226, 0, 0.4); 
+        mix-blend-mode: multiply;
+        border-bottom: 2px solid rgba(255, 200, 0, 0.8);
+        z-index: 10;
       }
     </style>
   </head>
@@ -39,104 +58,153 @@
   <body>
     <div id="viewerContainer">
       <div id="viewer" class="pdfViewer"></div>
-      <div id="previewLayer" class="highlight-layer"></div>
-      <div id="commentLayer" class="highlight-layer"></div>
     </div>
 
     <script type="module">
       import * as pdfjsLib from "/pdfjs/build/pdf.mjs"
       import { PDFViewer, EventBus } from "/pdfjs/web/pdf_viewer.mjs"
 
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "/pdfjs/build/pdf.worker.mjs"
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/build/pdf.worker.mjs"
 
+      /* --- Init --- */
       const params = new URLSearchParams(window.location.search)
       const fileUrl = params.get("file")
       if (!fileUrl) throw new Error("No PDF file specified")
 
       const eventBus = new EventBus()
+      const viewerContainer = document.getElementById("viewerContainer")
 
       const viewer = new PDFViewer({
-        container: document.getElementById("viewerContainer"),
+        container: viewerContainer,
         viewer: document.getElementById("viewer"),
         eventBus,
-        textLayerMode: 2,
+        textLayerMode: 2, 
       })
 
       const pdf = await pdfjsLib.getDocument(fileUrl).promise
       viewer.setDocument(pdf)
 
-      /* ───── Highlight helpers ───── */
 
-      const previewLayer = document.getElementById("previewLayer")
-      const commentLayer = document.getElementById("commentLayer")
-
-      function clearLayer(layer) {
-        layer.innerHTML = ""
+      /* ================= 1. Drawing Logic ================= */
+      
+      function clearPageHighlights(pageNumber) {
+        const pageView = viewer.getPageView(pageNumber - 1);
+        if (!pageView || !pageView.div) return;
+        
+        // Clear from our custom layer
+        const layer = pageView.div.querySelector('.custom-highlight-layer');
+        if (layer) layer.innerHTML = '';
       }
 
-      function drawRects(layer, rects) {
+      function clearAllHighlights() {
+        document.querySelectorAll('.custom-highlight-layer').forEach(el => el.innerHTML = '');
+      }
+
+      function drawRectsOnPage(pageNumber, rects) {
+        const pageView = viewer.getPageView(pageNumber - 1);
+        if (!pageView || !pageView.div) return;
+
+        // 1. CREATE/FIND THE HIGHLIGHT LAYER
+        // We append to a sibling of textLayer, not textLayer itself (to avoid opacity inheritance)
+        let highlightLayer = pageView.div.querySelector('.custom-highlight-layer');
+        
+        if (!highlightLayer) {
+            highlightLayer = document.createElement('div');
+            highlightLayer.className = 'custom-highlight-layer';
+            // Insert it before the textLayer so text selection still works on top
+            const textLayer = pageView.div.querySelector('.textLayer');
+            if (textLayer) {
+                pageView.div.insertBefore(highlightLayer, textLayer);
+            } else {
+                pageView.div.appendChild(highlightLayer);
+            }
+        }
+
+        // 2. DRAW
         rects.forEach(r => {
-          const div = document.createElement("div")
-          div.className = "highlight-rect"
-          div.style.left = `${r.x}px`
-          div.style.top = `${r.y}px`
-          div.style.width = `${r.width}px`
-          div.style.height = `${r.height}px`
-          layer.appendChild(div)
+          const d = document.createElement("div")
+          d.className = "highlight-rect"
+          
+          // Use Percentage Coordinates (Prevents Drift)
+          d.style.left   = `${r.left * 100}%`
+          d.style.top    = `${r.top * 100}%`
+          d.style.width  = `${r.width * 100}%`
+          d.style.height = `${r.height * 100}%`
+          
+          highlightLayer.appendChild(d)
         })
       }
 
-      /* ───── Selection → React (no drawing here) ───── */
 
-      document.addEventListener("mouseup", () => {
+      /* ================= 2. Selection Capture ================= */
+
+      document.addEventListener("selectionchange", () => {
         const sel = window.getSelection()
         if (!sel || sel.isCollapsed) return
 
         const range = sel.getRangeAt(0)
-        const rects = Array.from(range.getClientRects()).map(r => ({
-          x: r.x + window.scrollX,
-          y: r.y + window.scrollY,
-          width: r.width,
-          height: r.height,
-        }))
+        
+        // 1. Ensure selection is inside the text layer
+        const textLayer = range.commonAncestorContainer.nodeType === 1 
+          ? range.commonAncestorContainer.closest('.textLayer')
+          : range.commonAncestorContainer.parentElement?.closest('.textLayer');
+
+        if (!textLayer) return; 
+
+        // 2. Identify the Page
+        const pageEl = textLayer.closest('.page');
+        if (!pageEl) return;
+        const pageNumber = parseInt(pageEl.getAttribute('data-page-number'));
+
+        // 3. Measure relative to Text Layer (Crucial for Drift Fix)
+        const layerRect = textLayer.getBoundingClientRect();
+        const clientRects = Array.from(range.getClientRects());
+
+        const normalizedRects = clientRects.map(r => ({
+          left:   (r.left - layerRect.left) / layerRect.width,
+          top:    (r.top  - layerRect.top)  / layerRect.height,
+          width:  r.width / layerRect.width,
+          height: r.height / layerRect.height
+        }));
+
+        if (normalizedRects.length === 0) return;
 
         window.parent.postMessage(
           {
             type: "PDF_SELECTION",
             payload: {
               text: sel.toString(),
-              page: viewer.currentPageNumber,
-              rects,
+              page: pageNumber,
+              rects: normalizedRects,
             },
           },
           "*"
         )
       })
 
-      /* ───── Messages from React ───── */
+
+      /* ================= 3. Message Handling ================= */
 
       window.addEventListener("message", e => {
-        const { type, rects } = e.data || {}
-
+        const { type, payload } = e.data || {}
+        
         switch (type) {
           case "PREVIEW_HIGHLIGHT":
-            clearLayer(previewLayer)
-            drawRects(previewLayer, rects)
-            break
-
-          case "CLEAR_PREVIEW":
-            clearLayer(previewLayer)
+            if (payload?.page && payload?.rects) {
+                clearPageHighlights(payload.page); 
+                drawRectsOnPage(payload.page, payload.rects)
+            }
             break
 
           case "SET_COMMENT_HIGHLIGHTS":
-            clearLayer(commentLayer)
-            drawRects(commentLayer, rects)
-            break
+             if (payload?.page && payload?.rects) {
+                 clearPageHighlights(payload.page);
+                 drawRectsOnPage(payload.page, payload.rects);
+             }
+             break
 
           case "CLEAR_ALL_HIGHLIGHTS":
-            clearLayer(previewLayer)
-            clearLayer(commentLayer)
+            clearAllHighlights()
             break
         }
       })

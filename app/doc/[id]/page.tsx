@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { useParams, useRouter } from "next/navigation"
 import { DocumentRole } from "@/types/document"
@@ -13,8 +13,8 @@ type SelectionPayload = {
   text: string
   page: number
   rects: {
-    x: number
-    y: number
+    left: number
+    top: number
     width: number
     height: number
   }[]
@@ -37,11 +37,12 @@ type Comment = {
 export default function DocumentViewerPage() {
   const { id: documentId } = useParams() as { id: string }
   const router = useRouter()
+  
+  const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const [role, setRole] = useState<DocumentRole | null>(null)
   const [userId, setUserId] = useState("")
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
-
   const [documentType, setDocumentType] = useState<string | null>(null)
   const [documentOwnerId, setDocumentOwnerId] = useState<string | null>(null)
 
@@ -68,7 +69,6 @@ export default function DocumentViewerPage() {
         router.push("/login")
         return
       }
-
       setUserId(user.id)
 
       await supabase
@@ -90,7 +90,6 @@ export default function DocumentViewerPage() {
         router.push("/dashboard")
         return
       }
-
       setRole(access.role)
 
       const { data: doc } = await supabase
@@ -100,7 +99,6 @@ export default function DocumentViewerPage() {
         .single()
 
       if (!doc?.storage_path) return
-
       setDocumentOwnerId(doc.owner_id)
       setDocumentType(doc.document_type)
 
@@ -109,7 +107,6 @@ export default function DocumentViewerPage() {
         .createSignedUrl(doc.storage_path, 3600)
 
       if (!signed?.signedUrl) return
-
       setSignedUrl(signed.signedUrl)
     }
 
@@ -128,7 +125,6 @@ export default function DocumentViewerPage() {
     if (!data) return
 
     const authorIds = [...new Set(data.map((c) => c.author_id))]
-
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id,email")
@@ -156,8 +152,15 @@ export default function DocumentViewerPage() {
 
       setSelection(e.data.payload)
 
-      window.frames[0]?.postMessage(
-        { type: "PREVIEW_HIGHLIGHT", rects: e.data.payload.rects },
+      // Send PREVIEW to iframe (Temporary Highlight)
+      iframeRef.current?.contentWindow?.postMessage(
+        {
+          type: "PREVIEW_HIGHLIGHT",
+          payload: {
+            page: e.data.payload.page,
+            rects: e.data.payload.rects,
+          }
+        },
         "*"
       )
     }
@@ -188,10 +191,16 @@ export default function DocumentViewerPage() {
       severity,
     }
 
-    const { error } = await supabase.from("document_comments").insert(payload)
+    // 1. Insert Comment
+    const { data: savedComment, error } = await supabase
+        .from("document_comments")
+        .insert(payload)
+        .select()
+        .single();
 
     if (error) return
 
+    // 2. Notifications
     const { data: collaborators } = await supabase
       .from("document_shares")
       .select("shared_with")
@@ -222,15 +231,28 @@ export default function DocumentViewerPage() {
       })
     }
 
-    window.frames[0]?.postMessage({ type: "CLEAR_PREVIEW" }, "*")
+    // 3. CLEANUP (Fixes Ghosting)
+    // Clear the temporary preview highlight immediately
+    iframeRef.current?.contentWindow?.postMessage({ type: "CLEAR_ALL_HIGHLIGHTS" }, "*")
 
+    // 4. Reset State
     setNewComment("")
     setSelection(null)
     setSelectedLens(null)
     setLensPayload({})
     setSeverity(null)
 
-    loadComments()
+    // 5. Draw the PERMANENT highlight
+    await loadComments() 
+    if (savedComment) {
+       iframeRef.current?.contentWindow?.postMessage({
+        type: "SET_COMMENT_HIGHLIGHTS",
+        payload: {
+          page: savedComment.anchor_json.page,
+          rects: savedComment.anchor_json.rects,
+        }
+       }, "*")
+    }
   }
 
   /* ================= HELPER STYLES ================= */
@@ -251,7 +273,6 @@ export default function DocumentViewerPage() {
     buttonPrimary: { backgroundColor: "#111827", color: "#fff", padding: "6px 16px", borderRadius: "6px", fontSize: "13px", fontWeight: 500, border: "none", cursor: "pointer" },
     buttonSecondary: { backgroundColor: "transparent", color: "#6b7280", padding: "6px 12px", borderRadius: "6px", fontSize: "13px", fontWeight: 500, border: "none", cursor: "pointer", marginRight: "8px" },
     
-    // Badges
     badge: { display: "inline-flex", alignItems: "center", padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, marginRight: "6px" },
   }
 
@@ -270,6 +291,7 @@ export default function DocumentViewerPage() {
       {/* LEFT: PDF VIEWER */}
       <div style={styles.leftPanel}>
         <iframe
+          ref={iframeRef}
           src={`/pdf-viewer.html?file=${encodeURIComponent(signedUrl)}`}
           style={styles.iframe}
         />
@@ -278,7 +300,7 @@ export default function DocumentViewerPage() {
       {/* RIGHT: SIDEBAR */}
       <div style={styles.sidebar}>
         
-        {/* SIDEBAR HEADER with BACK BUTTON */}
+        {/* SIDEBAR HEADER */}
         <div style={styles.header}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <button 
@@ -300,10 +322,10 @@ export default function DocumentViewerPage() {
           </div>
         </div>
 
-        {/* CONTENT AREA: SCROLLABLE */}
+        {/* CONTENT AREA */}
         <div style={styles.scrollArea}>
           
-          {/* DRAFTING CARD (Active Selection) */}
+          {/* DRAFTING CARD */}
           {selection && role !== "viewer" && (
             <div style={styles.activeCard}>
               <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
@@ -398,7 +420,7 @@ export default function DocumentViewerPage() {
                 <button 
                   onClick={() => {
                     setSelection(null);
-                    window.frames[0]?.postMessage({ type: "CLEAR_PREVIEW" }, "*");
+                    iframeRef.current?.contentWindow?.postMessage({ type: "CLEAR_ALL_HIGHLIGHTS" }, "*")
                   }}
                   style={styles.buttonSecondary}
                 >
@@ -469,15 +491,22 @@ export default function DocumentViewerPage() {
                 {/* Actions */}
                 <div style={{ display: "flex", justifyContent: "space-between", paddingTop: "8px", borderTop: "1px solid #f3f4f6" }}>
                   <button
-                    onClick={() =>
-                      window.frames[0]?.postMessage(
+                    onClick={() => {
+                      iframeRef.current?.contentWindow?.postMessage(
+                        { type: "CLEAR_ALL_HIGHLIGHTS" },
+                        "*"
+                      )
+                      iframeRef.current?.contentWindow?.postMessage(
                         {
                           type: "SET_COMMENT_HIGHLIGHTS",
-                          rects: c.anchor_json.rects,
+                          payload: {
+                            page: c.anchor_json.page,
+                            rects: c.anchor_json.rects,
+                          }
                         },
                         "*"
                       )
-                    }
+                    }}
                     style={{ background: "none", border: "none", color: "#2563eb", fontSize: "12px", cursor: "pointer", padding: 0 }}
                   >
                     Locate
@@ -491,6 +520,10 @@ export default function DocumentViewerPage() {
                           .delete()
                           .eq("id", c.id)
                         loadComments()
+                        iframeRef.current?.contentWindow?.postMessage(
+                          { type: "CLEAR_ALL_HIGHLIGHTS" },
+                          "*"
+                        )
                       }}
                       style={{ background: "none", border: "none", color: "#ef4444", fontSize: "12px", cursor: "pointer", padding: 0 }}
                     >

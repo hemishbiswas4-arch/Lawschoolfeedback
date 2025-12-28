@@ -1,3 +1,4 @@
+// types/document.ts
 export type DocumentRole = "owner" | "editor" | "commenter" | "viewer"
 
 export type DocumentAccess = {
