@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>PDF Viewer</title>
+
+    <link rel="stylesheet" href="/pdfjs/web/pdf_viewer.css" />
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      #viewerContainer {
+        position: absolute;
+        inset: 0;
+        overflow: auto;
+      }
+
+      .highlight-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .highlight-rect {
+        position: absolute;
+        background: rgba(255, 230, 0, 0.45);
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="viewerContainer">
+      <div id="viewer" class="pdfViewer"></div>
+      <div id="previewLayer" class="highlight-layer"></div>
+      <div id="commentLayer" class="highlight-layer"></div>
+    </div>
+
+    <script type="module">
+      import * as pdfjsLib from "/pdfjs/build/pdf.mjs"
+      import { PDFViewer, EventBus } from "/pdfjs/web/pdf_viewer.mjs"
+
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "/pdfjs/build/pdf.worker.mjs"
+
+      const params = new URLSearchParams(window.location.search)
+      const fileUrl = params.get("file")
+      if (!fileUrl) throw new Error("No PDF file specified")
+
+      const eventBus = new EventBus()
+
+      const viewer = new PDFViewer({
+        container: document.getElementById("viewerContainer"),
+        viewer: document.getElementById("viewer"),
+        eventBus,
+        textLayerMode: 2,
+      })
+
+      const pdf = await pdfjsLib.getDocument(fileUrl).promise
+      viewer.setDocument(pdf)
+
+      /* ───── Highlight helpers ───── */
+
+      const previewLayer = document.getElementById("previewLayer")
+      const commentLayer = document.getElementById("commentLayer")
+
+      function clearLayer(layer) {
+        layer.innerHTML = ""
+      }
+
+      function drawRects(layer, rects) {
+        rects.forEach(r => {
+          const div = document.createElement("div")
+          div.className = "highlight-rect"
+          div.style.left = `${r.x}px`
+          div.style.top = `${r.y}px`
+          div.style.width = `${r.width}px`
+          div.style.height = `${r.height}px`
+          layer.appendChild(div)
+        })
+      }
+
+      /* ───── Selection → React (no drawing here) ───── */
+
+      document.addEventListener("mouseup", () => {
+        const sel = window.getSelection()
+        if (!sel || sel.isCollapsed) return
+
+        const range = sel.getRangeAt(0)
+        const rects = Array.from(range.getClientRects()).map(r => ({
+          x: r.x + window.scrollX,
+          y: r.y + window.scrollY,
+          width: r.width,
+          height: r.height,
+        }))
+
+        window.parent.postMessage(
+          {
+            type: "PDF_SELECTION",
+            payload: {
+              text: sel.toString(),
+              page: viewer.currentPageNumber,
+              rects,
+            },
+          },
+          "*"
+        )
+      })
+
+      /* ───── Messages from React ───── */
+
+      window.addEventListener("message", e => {
+        const { type, rects } = e.data || {}
+
+        switch (type) {
+          case "PREVIEW_HIGHLIGHT":
+            clearLayer(previewLayer)
+            drawRects(previewLayer, rects)
+            break
+
+          case "CLEAR_PREVIEW":
+            clearLayer(previewLayer)
+            break
+
+          case "SET_COMMENT_HIGHLIGHTS":
+            clearLayer(commentLayer)
+            drawRects(commentLayer, rects)
+            break
+
+          case "CLEAR_ALL_HIGHLIGHTS":
+            clearLayer(previewLayer)
+            clearLayer(commentLayer)
+            break
+        }
+      })
+    </script>
+  </body>
+</html>
