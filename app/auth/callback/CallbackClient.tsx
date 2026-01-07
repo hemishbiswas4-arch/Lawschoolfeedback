@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabaseClient"
 
 const NEXT_KEY = "auth:next-path"
 
-export default function CallbackClient(): JSX.Element {
+export default function CallbackClient() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const ranRef = useRef(false)
