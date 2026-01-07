@@ -1,50 +1,178 @@
-// @/app/projects/[id]/sources/[sourceId]/view/page.tsx
+// @/app/projects/[id]/sources/[sourceId]/page.tsx
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useParams, useSearchParams } from "next/navigation"
-import * as pdfjs from "pdfjs-dist"
+import { useParams, usePathname } from "next/navigation"
 
-pdfjs.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js"
+/* ================= TYPES ================= */
 
-export default function SourceViewerPage() {
-  const { sourceId } = useParams<{ sourceId: string }>()
-  const search = useSearchParams()
-  const pageNumber = Number(search.get("page")) || 1
+type Chunk = {
+  id: string
+  text: string
+  page_number: number
+}
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const [loading, setLoading] = useState(true)
+/* ================= PAGE ================= */
+
+export default function SourceDetailPage() {
+  console.log("▶️ SourceDetailPage render")
+
+  const params = useParams()
+  const pathname = usePathname()
+
+  const projectId = typeof params.id === "string" ? params.id : null
+  const sourceId = typeof params.sourceId === "string" ? params.sourceId : null
+
+  const [chunks, setChunks] = useState<Chunk[]>([])
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+
+  const [loadingChunks, setLoadingChunks] = useState(true)
+  const [progress, setProgress] = useState(0)
+
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const lastChunkCountRef = useRef(0)
+  const stableTicksRef = useRef(0)
+
+  /* ================= ROUTE GUARD ================= */
+
+  if (!projectId || !sourceId) {
+    return (
+      <div style={{ padding: "40px", color: "#b91c1c" }}>
+        <h2>Invalid source route</h2>
+        <code>{pathname}</code>
+      </div>
+    )
+  }
+
+  /* ================= LOAD PDF URL ================= */
 
   useEffect(() => {
-    const load = async () => {
-      const res = await fetch(`/api/sources/${sourceId}/pdf`)
-      const { url } = await res.json()
-
-      const pdf = await pdfjs.getDocument(url).promise
-      const page = await pdf.getPage(pageNumber)
-
-      const viewport = page.getViewport({ scale: 1.5 })
-      const canvas = canvasRef.current
-      if (!canvas) return
-
-      const ctx = canvas.getContext("2d")
-      if (!ctx) return
-
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-
-      await page.render({ canvasContext: ctx, viewport }).promise
-      setLoading(false)
+    const loadPdfUrl = async () => {
+      try {
+        const res = await fetch(`/api/sources/${sourceId}/pdf`)
+        if (!res.ok) return
+        const { url } = await res.json()
+        setPdfUrl(url)
+      } catch (e) {
+        console.error("❌ pdf fetch error:", e)
+      }
     }
 
-    load()
-  }, [sourceId, pageNumber])
+    loadPdfUrl()
+  }, [sourceId])
+
+  /* ================= POLL CHUNKS + PROGRESS ================= */
+
+  useEffect(() => {
+    let cancelled = false
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/sources/${sourceId}/chunks`)
+        if (!res.ok) return
+
+        const json = await res.json()
+        if (!Array.isArray(json)) return
+        if (cancelled) return
+
+        setChunks(json)
+
+        const current = json.length
+        const last = lastChunkCountRef.current
+
+        if (current > last) {
+          lastChunkCountRef.current = current
+          stableTicksRef.current = 0
+        } else {
+          stableTicksRef.current++
+        }
+
+        const inferred = Math.min(95, Math.round(Math.log(current + 1) * 25))
+        setProgress(inferred)
+
+        if (stableTicksRef.current >= 3) {
+          setProgress(100)
+          setLoadingChunks(false)
+          return
+        }
+
+        setTimeout(poll, 1200)
+      } catch (e) {
+        console.error("❌ chunk poll error:", e)
+      }
+    }
+
+    poll()
+    return () => {
+      cancelled = true
+    }
+  }, [sourceId])
+
+  /* ================= UI ================= */
 
   return (
-    <div style={{ padding: "20px" }}>
-      {loading && <p>Loading PDF…</p>}
-      <canvas ref={canvasRef} />
+    <div style={{ display: "flex", height: "100vh" }}>
+      {/* LEFT: CHUNKS (READ-ONLY INDEX) */}
+      <div
+        style={{
+          width: "40%",
+          overflowY: "auto",
+          borderRight: "1px solid #e5e7eb",
+          padding: "16px",
+          fontSize: "13px",
+        }}
+      >
+        {loadingChunks && (
+          <div style={{ marginBottom: "12px" }}>
+            <div style={{ fontSize: "12px", marginBottom: "4px" }}>
+              Indexing source…
+            </div>
+            <div
+              style={{
+                height: "6px",
+                background: "#e5e7eb",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${progress}%`,
+                  height: "100%",
+                  background: "#2563eb",
+                  transition: "width 0.4s ease",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {chunks.map(c => (
+          <div
+            key={c.id}
+            style={{
+              padding: "8px",
+              borderBottom: "1px solid #f3f4f6",
+            }}
+          >
+            <strong>p.{c.page_number}</strong>
+            <div>{c.text}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* RIGHT: PDF VIEWER */}
+      <div style={{ width: "60%", height: "100%" }}>
+        {pdfUrl ? (
+          <iframe
+            ref={iframeRef}
+            src={`/pdf-viewer.html?file=${encodeURIComponent(pdfUrl)}`}
+            style={{ width: "100%", height: "100%", border: "none" }}
+          />
+        ) : (
+          <div style={{ padding: "40px" }}>Loading PDF…</div>
+        )}
+      </div>
     </div>
   )
 }

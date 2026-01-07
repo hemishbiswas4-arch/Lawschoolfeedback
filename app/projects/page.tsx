@@ -1,4 +1,5 @@
 // @/app/projects/page.tsx
+// @/app/projects/page.tsx
 "use client"
 
 export const dynamic = "force-dynamic"

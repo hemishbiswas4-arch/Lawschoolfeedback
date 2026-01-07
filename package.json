@@ -9,8 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.964.0",
     "@supabase/supabase-js": "^2.89.0",
+    "canvas": "^3.2.0",
     "compromise": "^14.14.5",
+    "dotenv": "^17.2.3",
     "natural": "^8.1.0",
     "next": "16.1.0",
     "pdfjs-dist": "^3.11.174",
@@ -26,6 +29,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

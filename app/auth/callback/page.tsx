@@ -1,9 +1,10 @@
-// @/app/auth/callback/page.tsx
 "use client"
 
 import { useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
+
+const NEXT_KEY = "auth:next-path"
 
 export default function Page() {
   const router = useRouter()
@@ -11,18 +12,27 @@ export default function Page() {
   const ranRef = useRef(false)
 
   useEffect(() => {
-    // 🛑 Prevent double execution
     if (ranRef.current) return
     ranRef.current = true
 
     const finish = async () => {
       const code = searchParams.get("code")
-      const next =
-        searchParams.get("next") === "/projects"
-          ? "/projects"
-          : "/dashboard"
 
-      // If already signed in, just route
+      // 🔐 Recover intended destination
+      const storedNext =
+        typeof window !== "undefined"
+          ? localStorage.getItem(NEXT_KEY)
+          : null
+
+      const next =
+        storedNext === "/projects" ? "/projects" : "/dashboard"
+
+      // Clean up stored value
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(NEXT_KEY)
+      }
+
+      // Already signed in → just route
       const { data: existing } = await supabase.auth.getSession()
       if (existing.session) {
         router.replace(next)
@@ -34,8 +44,8 @@ export default function Page() {
         return
       }
 
-      // ✅ Exchange OAuth code ONCE
-      const { error } = await supabase.auth.exchangeCodeForSession(code)
+      const { error } =
+        await supabase.auth.exchangeCodeForSession(code)
 
       if (error) {
         console.error("OAuth exchange failed:", error)
@@ -43,7 +53,7 @@ export default function Page() {
         return
       }
 
-      // ✅ Strip code from URL BEFORE navigation
+      // Remove OAuth params from URL
       window.history.replaceState({}, "", "/auth/callback")
 
       router.replace(next)

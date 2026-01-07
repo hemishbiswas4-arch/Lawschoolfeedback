@@ -1,8 +1,59 @@
+// @/app/projects/[id]/page.tsx
 "use client"
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { useParams, useRouter } from "next/navigation"
+
+/* ================= SOURCE CATEGORY CONFIG ================= */
+
+/**
+ * Edit THIS object to change categories or options.
+ * No JSX changes required.
+ */
+const SOURCE_CATEGORIES: {
+  label: string
+  options: { value: string; label: string }[]
+}[] = [
+  {
+    label: "Primary Law",
+    options: [
+      { value: "case", label: "Case" },
+      { value: "statute", label: "Statute" },
+      { value: "regulation", label: "Regulation" },
+      { value: "constitution", label: "Constitution" },
+      { value: "treaty", label: "Treaty" },
+    ],
+  },
+  {
+    label: "Academic / Secondary",
+    options: [
+      { value: "journal_article", label: "Journal Article" },
+      { value: "book", label: "Book" },
+      { value: "commentary", label: "Commentary / Textbook" },
+      { value: "working_paper", label: "Working Paper" },
+      { value: "thesis", label: "Thesis / Dissertation" },
+    ],
+  },
+  {
+    label: "Policy / Institutional",
+    options: [
+      { value: "committee_report", label: "Committee Report" },
+      { value: "law_commission_report", label: "Law Commission Report" },
+      { value: "white_paper", label: "White Paper" },
+      { value: "government_report", label: "Government Report" },
+    ],
+  },
+  {
+    label: "Digital / Informal",
+    options: [
+      { value: "blog_post", label: "Blog Post" },
+      { value: "news_article", label: "News Article" },
+      { value: "website", label: "Website" },
+      { value: "other", label: "Other" },
+    ],
+  },
+]
 
 /* ================= TYPES ================= */
 
@@ -31,7 +82,9 @@ export default function ProjectPage() {
   const [loading, setLoading] = useState(true)
 
   /* New source state */
-  const [sourceType, setSourceType] = useState("case")
+  const [sourceType, setSourceType] = useState(
+    SOURCE_CATEGORIES[0].options[0].value
+  )
   const [sourceTitle, setSourceTitle] = useState("")
   const [uploading, setUploading] = useState(false)
 
@@ -87,7 +140,7 @@ export default function ProjectPage() {
       return
     }
 
-    /* 1️⃣ Optimistic insert */
+    /* Optimistic insert */
     const tempId = `temp-${Date.now()}`
     const optimisticSource: Source = {
       id: tempId,
@@ -115,13 +168,11 @@ export default function ProjectPage() {
     setUploading(false)
 
     if (!res.ok) {
-      /* rollback optimistic insert */
       setSources(prev => prev.filter(s => s.id !== tempId))
       alert("Upload failed")
       return
     }
 
-    /* 2️⃣ Reconcile with DB */
     const { data: sourceData } = await supabase
       .from("project_sources")
       .select("id, type, title, created_at")
@@ -146,10 +197,10 @@ export default function ProjectPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#f9fafb", fontFamily: "sans-serif" }}>
       <div style={{ maxWidth: "900px", margin: "0 auto", padding: "40px 20px" }}>
-        {/* HEADER */}
         <h1 style={{ fontSize: "28px", fontWeight: 700 }}>
           {project.title}
         </h1>
+
         <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "32px" }}>
           Project workspace
         </p>
@@ -171,7 +222,7 @@ export default function ProjectPage() {
           <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
             <select
               value={sourceType}
-              onChange={(e) => setSourceType(e.target.value)}
+              onChange={e => setSourceType(e.target.value)}
               style={{
                 padding: "8px",
                 borderRadius: "6px",
@@ -179,40 +230,20 @@ export default function ProjectPage() {
                 fontSize: "13px",
               }}
             >
-              <optgroup label="Primary Law">
-                <option value="case">Case</option>
-                <option value="statute">Statute</option>
-                <option value="regulation">Regulation</option>
-                <option value="constitution">Constitution</option>
-                <option value="treaty">Treaty</option>
-              </optgroup>
-
-              <optgroup label="Academic / Secondary">
-                <option value="journal_article">Journal Article</option>
-                <option value="book">Book</option>
-                <option value="commentary">Commentary / Textbook</option>
-                <option value="working_paper">Working Paper</option>
-                <option value="thesis">Thesis / Dissertation</option>
-              </optgroup>
-
-              <optgroup label="Policy / Institutional">
-                <option value="committee_report">Committee Report</option>
-                <option value="law_commission_report">Law Commission Report</option>
-                <option value="white_paper">White Paper</option>
-                <option value="government_report">Government Report</option>
-              </optgroup>
-
-              <optgroup label="Digital / Informal">
-                <option value="blog_post">Blog Post</option>
-                <option value="news_article">News Article</option>
-                <option value="website">Website</option>
-                <option value="other">Other</option>
-              </optgroup>
+              {SOURCE_CATEGORIES.map(cat => (
+                <optgroup key={cat.label} label={cat.label}>
+                  {cat.options.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
 
             <input
               value={sourceTitle}
-              onChange={(e) => setSourceTitle(e.target.value)}
+              onChange={e => setSourceTitle(e.target.value)}
               placeholder="Source title"
               style={{
                 flex: 1,
@@ -228,7 +259,7 @@ export default function ProjectPage() {
             type="file"
             accept="application/pdf"
             disabled={uploading || !sourceTitle.trim()}
-            onChange={(e) => {
+            onChange={e => {
               const file = e.target.files?.[0]
               if (file) handleFileUpload(file)
             }}
@@ -254,7 +285,7 @@ export default function ProjectPage() {
             </p>
           ) : (
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {sources.map((s) => (
+              {sources.map(s => (
                 <li
                   key={s.id}
                   onClick={() =>
@@ -278,6 +309,21 @@ export default function ProjectPage() {
               ))}
             </ul>
           )}
+
+          <button
+            onClick={() => router.push(`/projects/${id}/query`)}
+            style={{
+              marginTop: "24px",
+              padding: "10px 16px",
+              borderRadius: "8px",
+              background: "#111",
+              color: "#fff",
+              fontSize: "14px",
+              fontWeight: 500,
+            }}
+          >
+            Continue to Research
+          </button>
         </div>
       </div>
     </div>

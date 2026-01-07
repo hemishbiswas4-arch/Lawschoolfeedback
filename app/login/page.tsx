@@ -3,35 +3,39 @@
 import { useState } from "react"
 import { supabase } from "@/lib/supabaseClient"
 
+const NEXT_KEY = "auth:next-path"
+
 export default function Page() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-const signInWithGoogle = async () => {
-  if (loading) return
+  const signInWithGoogle = async () => {
+    if (loading) return
 
-  setLoading(true)
-  setError(null)
+    setLoading(true)
+    setError(null)
 
-  const next =
-    new URLSearchParams(window.location.search).get("next") ?? "/dashboard"
+    // ✅ Read intended destination
+    const next =
+      new URLSearchParams(window.location.search).get("next") ??
+      "/dashboard"
 
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(
-        next
-      )}`,
-    },
-  })
+    // ✅ Persist BEFORE redirect (critical)
+    localStorage.setItem(NEXT_KEY, next)
 
-  if (error) {
-    console.error("Google sign-in error:", error)
-    setError("Google sign-in failed. Please try again.")
-    setLoading(false)
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+
+    if (error) {
+      console.error("Google sign-in error:", error)
+      setError("Google sign-in failed. Please try again.")
+      setLoading(false)
+    }
   }
-}
-
 
   /* ================= STYLES ================= */
 
@@ -53,7 +57,8 @@ const signInWithGoogle = async () => {
       backgroundColor: "#ffffff",
       borderRadius: "12px",
       border: "1px solid #e5e7eb",
-      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)",
+      boxShadow:
+        "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)",
       padding: "40px 32px",
       textAlign: "center" as const,
     },
@@ -97,7 +102,7 @@ const signInWithGoogle = async () => {
       fontWeight: 500,
       color: "#374151",
       cursor: loading ? "not-allowed" : "pointer",
-      transition: "background-color 0.2s, box-shadow 0.2s",
+      transition: "background-color 0.2s",
       opacity: loading ? 0.7 : 1,
     },
     errorBox: {
@@ -113,19 +118,13 @@ const signInWithGoogle = async () => {
       marginTop: "24px",
       fontSize: "12px",
       color: "#9ca3af",
-    }
+    },
   }
 
   return (
     <div style={styles.container}>
-      
-      {/* CARD */}
       <div style={styles.card}>
-        
-        {/* LOGO ICON */}
-        <div style={styles.logoPlaceholder}>
-          P
-        </div>
+        <div style={styles.logoPlaceholder}>P</div>
 
         <h1 style={styles.heading}>Welcome back</h1>
         <p style={styles.subHeading}>
@@ -136,18 +135,25 @@ const signInWithGoogle = async () => {
           onClick={signInWithGoogle}
           disabled={loading}
           style={styles.button}
-          onMouseOver={(e) => {
+          onMouseOver={e => {
             if (!loading) e.currentTarget.style.backgroundColor = "#f9fafb"
           }}
-          onMouseOut={(e) => {
+          onMouseOut={e => {
             if (!loading) e.currentTarget.style.backgroundColor = "#fff"
           }}
         >
           {loading ? (
-             // Simple spinner
-             <div style={{ width: "16px", height: "16px", border: "2px solid #e5e7eb", borderTop: "2px solid #374151", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+            <div
+              style={{
+                width: "16px",
+                height: "16px",
+                border: "2px solid #e5e7eb",
+                borderTop: "2px solid #374151",
+                borderRadius: "50%",
+                animation: "spin 1s linear infinite",
+              }}
+            />
           ) : (
-            // Google Icon
             <svg width="18" height="18" viewBox="0 0 24 24">
               <path
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -167,25 +173,24 @@ const signInWithGoogle = async () => {
               />
             </svg>
           )}
-          <span>{loading ? "Redirecting..." : "Continue with Google"}</span>
+          <span>{loading ? "Redirecting…" : "Continue with Google"}</span>
         </button>
 
-        {error && (
-          <div style={styles.errorBox}>
-            {error}
-          </div>
-        )}
+        {error && <div style={styles.errorBox}>{error}</div>}
       </div>
 
       <div style={styles.footer}>
-        &copy; {new Date().getFullYear()} Promethean Platform. Beta v0.1
+        © {new Date().getFullYear()} Promethean Platform. Beta v0.1
       </div>
 
-      {/* Inline animation style for the spinner */}
       <style jsx global>{`
         @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
+          }
         }
       `}</style>
     </div>
