@@ -1,5 +1,8 @@
 "use client"
 
+// 🔴 REQUIRED: prevent static prerendering
+export const dynamic = "force-dynamic"
+
 import { useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
