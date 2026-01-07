@@ -3,8 +3,6 @@
 import Link from "next/link"
 
 export default function Home() {
-  
-  /* ================= STYLES ================= */
   const styles = {
     page: {
       minHeight: "100vh",
@@ -56,7 +54,6 @@ export default function Home() {
       gap: "60px",
       alignItems: "center",
     },
-    // Left Column
     h1: {
       fontSize: "3.5rem",
       lineHeight: 1.1,
@@ -85,7 +82,6 @@ export default function Home() {
       fontWeight: 500,
       textDecoration: "none",
       fontSize: "15px",
-      transition: "opacity 0.2s",
     },
     secondaryBtn: {
       background: "#fff",
@@ -114,13 +110,11 @@ export default function Home() {
       fontSize: "11px",
       border: "1px solid #e5e7eb",
     },
-    // Right Column
     card: {
       background: "#fff",
       border: "1px solid #e5e7eb",
       borderRadius: "16px",
       padding: "32px",
-      boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01)",
     },
     cardText: {
       fontSize: "15px",
@@ -130,27 +124,25 @@ export default function Home() {
     highlight: {
       color: "#111",
       fontWeight: 600,
-    }
+    },
   }
 
   return (
     <div style={styles.page}>
-      
-      {/* NAVBAR */}
       <nav style={styles.nav}>
         <div style={styles.logo}>
           <div style={styles.logoIcon}>P</div>
         </div>
-        <Link href="/login" style={{ fontSize: "14px", fontWeight: 500, textDecoration: "none", color: "#6b7280" }}>
+        <Link
+          href="/login"
+          style={{ fontSize: "14px", fontWeight: 500, color: "#6b7280" }}
+        >
           Log in
         </Link>
       </nav>
 
-      {/* MAIN CONTENT */}
       <main style={styles.main}>
         <div style={styles.grid}>
-          
-          {/* LEFT: Hero Content */}
           <div>
             <h1 style={styles.h1}>
               Law School <br />
@@ -158,15 +150,17 @@ export default function Home() {
             </h1>
 
             <p style={styles.subtext}>
-              A centralized platform for university work — moots, negotiation plans, research papers, and drafts. Move beyond email chains.
+              A centralized platform for university work — moots, negotiation
+              plans, research papers, and drafts.
             </p>
 
             <div style={styles.buttonGroup}>
-              <Link href="/login" style={styles.primaryBtn}>
-                Get Started
-              </Link>
-              <Link href="/dashboard" style={styles.secondaryBtn}>
-                Dashboard
+<Link href="/login?next=/projects" style={styles.primaryBtn}>
+  Projects
+</Link>
+
+             <Link href="/login?next=/dashboard" style={styles.secondaryBtn}>
+                Feedback
               </Link>
             </div>
 
@@ -176,24 +170,29 @@ export default function Home() {
             </div>
           </div>
 
-          {/* RIGHT: Feature Card */}
           <div style={styles.card}>
-            {/* Decorative Icon */}
-            <div style={{ marginBottom: "20px", width: "40px", height: "40px", borderRadius: "50%", backgroundColor: "#f9fafb", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #f3f4f6" }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-            </div>
-
             <p style={styles.cardText}>
-              This tool is designed to <span style={styles.highlight}>reduce document sharing over email</span> and messaging platforms.
-              <br /><br />
-              Feedback is anchored directly to the PDF and can be categorised by work type (e.g., <span style={{ textDecoration: "underline", textDecorationColor: "#d1d5db" }}>moots</span>, <span style={{ textDecoration: "underline", textDecorationColor: "#d1d5db" }}>negotiations</span>).
-              <br /><br />
-              <span style={{ fontSize: "13px", color: "#9ca3af", fontStyle: "italic" }}>
-                The system is currently in active beta and may change based on use and feedback.
+              This tool is designed to{" "}
+              <span style={styles.highlight}>
+                reduce document sharing over email
+              </span>
+              .<br />
+              <br />
+              Feedback is anchored directly to the PDF and categorised by work
+              type.
+              <br />
+              <br />
+              <span
+                style={{
+                  fontSize: "13px",
+                  color: "#9ca3af",
+                  fontStyle: "italic",
+                }}
+              >
+                The system is currently in active beta.
               </span>
             </p>
           </div>
-
         </div>
       </main>
     </div>

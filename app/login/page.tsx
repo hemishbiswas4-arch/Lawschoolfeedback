@@ -7,26 +7,31 @@ export default function Page() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const signInWithGoogle = async () => {
-    if (loading) return
+const signInWithGoogle = async () => {
+  if (loading) return
 
-    setLoading(true)
-    setError(null)
+  setLoading(true)
+  setError(null)
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${location.origin}/auth/callback`,
-      },
-    })
+  const next =
+    new URLSearchParams(window.location.search).get("next") ?? "/dashboard"
 
-    if (error) {
-      console.error("Google sign-in error:", error)
-      setError("Google sign-in failed. Please try again.")
-      setLoading(false)
-    }
-    // On success, browser redirects immediately
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(
+        next
+      )}`,
+    },
+  })
+
+  if (error) {
+    console.error("Google sign-in error:", error)
+    setError("Google sign-in failed. Please try again.")
+    setLoading(false)
   }
+}
+
 
   /* ================= STYLES ================= */
 
