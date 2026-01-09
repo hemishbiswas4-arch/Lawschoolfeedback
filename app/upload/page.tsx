@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 
 /* ================= TYPES ================= */
 
@@ -13,6 +14,18 @@ type DocumentType =
   | "bibliography"
   | "assignment"
   | "draft"
+
+type FileWithPreview = {
+  file: File
+  id: string
+  preview: string
+}
+
+type UploadedDoc = {
+  id: string
+  title: string
+  created_at: string
+}
 
 const DOCUMENT_TYPES: { value: DocumentType; label: string }[] = [
   { value: "moot", label: "Moot Memorial / Written Submissions" },
@@ -28,9 +41,10 @@ const DOCUMENT_TYPES: { value: DocumentType; label: string }[] = [
 export default function Page() {
   const router = useRouter()
 
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<FileWithPreview[]>([])
   const [docType, setDocType] = useState<DocumentType>("draft")
   const [loading, setLoading] = useState(false)
+  const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([])
 
   /* ================= AUTH GUARD + LOAD DOCS ================= */
 
