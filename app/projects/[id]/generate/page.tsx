@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
+import { supabase } from "@/lib/supabaseClient"
 
 /* ================= TYPES ================= */
 
@@ -44,6 +45,7 @@ export default function GenerateProjectPage() {
   const [evidenceIndex, setEvidenceIndex] = useState<
     Record<string, EvidenceMeta>
   >({})
+  const [sourceTitles, setSourceTitles] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [selectedApproach, setSelectedApproach] = useState<any>(null)
 
@@ -102,6 +104,29 @@ export default function GenerateProjectPage() {
 
         setReasoning(json.reasoning_output)
         setEvidenceIndex(json.evidence_index)
+        
+        // Fetch source titles for all source IDs in evidence index
+        const sourceIds = new Set<string>()
+        for (const meta of Object.values(json.evidence_index)) {
+          sourceIds.add(meta.source_id)
+        }
+        
+        if (sourceIds.size > 0) {
+          const { data: sources } = await supabase
+            .from("project_sources")
+            .select("id, title")
+            .eq("project_id", projectId)
+            .in("id", Array.from(sourceIds))
+          
+          if (sources) {
+            const titleMap: Record<string, string> = {}
+            for (const source of sources) {
+              titleMap[source.id] = source.title
+            }
+            setSourceTitles(titleMap)
+          }
+        }
+        
         setError(null)
       } catch (err: any) {
         setError(err?.message ?? "Server unavailable")
@@ -253,6 +278,8 @@ export default function GenerateProjectPage() {
                   const meta = evidenceIndex[eid]
                   if (!meta) return null
 
+                  const sourceTitle = sourceTitles[meta.source_id] || meta.source_id
+
                   return (
                     <div
                       key={`${paraKey}-${eid}`}
@@ -263,7 +290,7 @@ export default function GenerateProjectPage() {
                       }}
                     >
                       <div>
-                        <strong>Source:</strong> {meta.source_id}
+                        <strong>Source:</strong> {sourceTitle}
                       </div>
                       <div>
                         <strong>Page:</strong> {meta.page_number},{" "}
