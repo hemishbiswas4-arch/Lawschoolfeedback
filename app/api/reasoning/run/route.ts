@@ -446,8 +446,10 @@ export async function POST(req: Request) {
       const maxChunksPerSource = Math.max(2, Math.floor(estimatedChunks / targetSources))
       // Hard limit: no single source should get more than 30% of total chunks
       // BUT: Primary law sources (statutes, treaties, regulations) can get up to 40% since they're critical
-      const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution', 'case'])
       const hardMaxPerSource = Math.max(maxChunksPerSource, Math.ceil(estimatedChunks * 0.3))
+      
+      // Define primary law types once for reuse throughout chunk selection
+      const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution', 'case'])
 
       log(runId, "DIVERSITY_CONFIG", {
         total_sources: totalSources,
@@ -458,7 +460,6 @@ export async function POST(req: Request) {
       })
 
       // First pass: PRIORITIZE PRIMARY LAW SOURCES - ensure strong representation
-      const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution', 'case'])
       const chunksBySourceType = new Map<string, typeof scoredChunks>()
       for (const chunk of scoredChunks) {
         const type = chunk.source_type
@@ -628,8 +629,7 @@ export async function POST(req: Request) {
       /* ================= EXPAND PRIMARY LAW CHUNKS WITH ADJACENT CONTEXT ================= */
       // For statutes, treaties, regulations, and conventions, include adjacent chunks
       // to preserve complete legal provisions and avoid mid-provision cuts
-      
-      const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution'])
+      // Note: primaryLawTypes is already defined above, reusing it here
       const expandedChunks: typeof boundedChunks = []
       const expandedChunkIds = new Set<string>()
       const chunksToExpand = new Set<string>() // Track which chunks need expansion
