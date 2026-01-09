@@ -34,6 +34,7 @@ export default function GenerateProjectPage() {
   const { id: projectId } = useParams<{ id: string }>()
   const searchParams = useSearchParams()
   const queryText = searchParams.get("query")
+  const approachParam = searchParams.get("approach")
 
   const hasRequestedRef = useRef(false)
 
@@ -43,12 +44,23 @@ export default function GenerateProjectPage() {
     Record<string, EvidenceMeta>
   >({})
   const [error, setError] = useState<string | null>(null)
+  const [selectedApproach, setSelectedApproach] = useState<any>(null)
 
   useEffect(() => {
     if (!projectId || !queryText) {
       setError("Missing project or query")
       setLoading(false)
       return
+    }
+
+    // Parse approach if provided
+    if (approachParam) {
+      try {
+        const approach = JSON.parse(approachParam)
+        setSelectedApproach(approach)
+      } catch (e) {
+        console.error("Failed to parse approach:", e)
+      }
     }
 
     if (hasRequestedRef.current) return
@@ -63,6 +75,7 @@ export default function GenerateProjectPage() {
             project_id: projectId,
             query_text: queryText,
             mode: "generate",
+            approach: selectedApproach,
           }),
         })
 
@@ -87,7 +100,7 @@ export default function GenerateProjectPage() {
     }
 
     generate()
-  }, [projectId, queryText])
+  }, [projectId, queryText, approachParam])
 
   /* ================= UI STATES ================= */
 
@@ -131,6 +144,31 @@ export default function GenerateProjectPage() {
         <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "32px" }}>
           Query: <em>{queryText}</em>
         </p>
+
+        {selectedApproach?.argumentation_line && (
+          <div
+            style={{
+              padding: "12px 16px",
+              background: "#f0f9ff",
+              border: "1px solid #bae6fd",
+              borderRadius: "8px",
+              marginBottom: "24px",
+              fontSize: "13px",
+            }}
+          >
+            <strong>Selected Approach:</strong> {selectedApproach.argumentation_line.title}
+            {selectedApproach.tone && (
+              <span style={{ marginLeft: "12px", color: "#6b7280" }}>
+                · Tone: {selectedApproach.tone}
+              </span>
+            )}
+            {selectedApproach.structure_type && (
+              <span style={{ marginLeft: "12px", color: "#6b7280" }}>
+                · Structure: {selectedApproach.structure_type}
+              </span>
+            )}
+          </div>
+        )}
 
         {reasoning.sections.map(section => (
           <div key={section.section_index} style={{ marginBottom: "40px" }}>

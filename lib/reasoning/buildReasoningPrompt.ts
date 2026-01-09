@@ -12,26 +12,109 @@ type EvidenceChunk = {
   content: string
 }
 
+type Approach = {
+  argumentation_line?: {
+    id: string
+    title: string
+    description: string
+    approach: string
+    focus_areas: string[]
+    tone: string
+    structure: {
+      sections: Array<{
+        section_index: number
+        title: string
+        description: string
+      }>
+    }
+  }
+  tone?: string
+  structure_type?: string
+  focus_areas?: string[]
+  sections?: Array<{
+    section_index: number
+    title: string
+    description: string
+  }>
+}
+
+type SourceDetail = {
+  id: string
+  type: string
+  title: string
+}
+
 type BuildReasoningPromptInput = {
   query_text: string
   chunks: EvidenceChunk[]
+  project_type?: string
+  approach?: Approach
+  source_types?: Record<string, number>
+  source_details?: SourceDetail[]
 }
 
 export function buildReasoningPrompt({
   query_text,
   chunks,
+  project_type = "research_paper",
+  approach,
+  source_types = {},
+  source_details = [],
 }: BuildReasoningPromptInput): string {
   if (!chunks || chunks.length === 0) {
     throw new Error("No evidence chunks provided")
   }
 
-  /* ---------- Evidence enumeration (UUID-based) ---------- */
+  /* ---------- Source type context ---------- */
+
+  const sourceTypeLabels: Record<string, string> = {
+    case: "Case Law",
+    statute: "Statute",
+    regulation: "Regulation",
+    constitution: "Constitution",
+    treaty: "Treaty",
+    journal_article: "Journal Article",
+    book: "Book",
+    commentary: "Commentary / Textbook",
+    working_paper: "Working Paper",
+    thesis: "Thesis / Dissertation",
+    committee_report: "Committee Report",
+    law_commission_report: "Law Commission Report",
+    white_paper: "White Paper",
+    government_report: "Government Report",
+    blog_post: "Blog Post",
+    news_article: "News Article",
+    website: "Website",
+    other: "Other",
+  }
+
+  const sourceContext = Object.keys(source_types).length > 0
+    ? `\nSOURCE TYPES AVAILABLE:\n${Object.entries(source_types)
+        .map(([type, count]) => `- ${sourceTypeLabels[type] || type}: ${count} source(s)`)
+        .join("\n")}`
+    : ""
+
+  const sourceDetailsContext = source_details.length > 0
+    ? `\nSOURCE DETAILS:\n${source_details
+        .map(s => `- ${s.title} (${sourceTypeLabels[s.type] || s.type})`)
+        .join("\n")}`
+    : ""
+
+  /* ---------- Evidence enumeration (UUID-based) with source type ---------- */
+
+  const sourceIdToType = new Map<string, string>()
+  for (const source of source_details) {
+    sourceIdToType.set(source.id, source.type)
+  }
 
   const evidenceSection = chunks
     .map(chunk => {
+      const sourceType = sourceIdToType.get(chunk.source_id) || "unknown"
+      const sourceTypeLabel = sourceTypeLabels[sourceType] || sourceType
       return [
         `[${chunk.id}]`,
         `Source ID: ${chunk.source_id}`,
+        `Source Type: ${sourceTypeLabel}`,
         `Page Number: ${chunk.page_number}`,
         `Paragraph Index: ${chunk.paragraph_index}`,
         `Chunk Index: ${chunk.chunk_index}`,
@@ -41,6 +124,82 @@ export function buildReasoningPrompt({
       ].join("\n")
     })
     .join("\n")
+
+  /* ---------- Project type context ---------- */
+
+  const projectTypeDescriptions: Record<string, string> = {
+    // Academic Research
+    research_paper: "Academic research paper with comprehensive analysis, theoretical grounding, and scholarly rigor",
+    literature_review: "Comprehensive review synthesizing existing scholarship, identifying gaps, and positioning contributions",
+    systematic_review: "Systematic review following methodological protocols and rigorous review standards",
+    empirical_study: "Research paper based on empirical data, statistical analysis, and evidence-based conclusions",
+    theoretical_paper: "Paper focused on theoretical frameworks, conceptual analysis, and theoretical contributions",
+    
+    // Legal Documents
+    legal_brief: "Formal legal brief or memorandum with clear legal arguments, case citations, and structured analysis",
+    motion_brief: "Brief supporting or opposing a motion, with focused legal arguments and case law",
+    appellate_brief: "Brief for appellate court proceedings, emphasizing legal errors and precedent",
+    legal_memorandum: "Internal legal memorandum analyzing legal issues, risks, and recommendations",
+    client_opinion: "Legal opinion letter providing client advice on legal matters and implications",
+    
+    // Case Analysis
+    case_analysis: "Detailed case law analysis focusing on judicial reasoning, precedent, and doctrinal development",
+    case_note: "Brief analysis of a specific case, highlighting key legal principles and implications",
+    case_comment: "Critical commentary on a judicial decision, analyzing reasoning and potential impact",
+    comparative_case_study: "Comparative analysis across multiple cases or jurisdictions, identifying patterns and differences",
+    
+    // Policy & Reform
+    policy_analysis: "Policy evaluation document examining implications, alternatives, and recommendations",
+    law_reform_paper: "Paper proposing legal reforms with policy recommendations and implementation strategies",
+    regulatory_analysis: "Analysis of regulatory frameworks, compliance requirements, and regulatory impact",
+    impact_assessment: "Assessment of legal or policy impacts, evaluating effectiveness and consequences",
+    
+    // Extended Academic Work
+    thesis: "Extended academic work with deep analysis, original contributions, and comprehensive coverage",
+    dissertation: "Doctoral-level extended research work with original research and significant contributions",
+    masters_thesis: "Master's level extended research work with comprehensive analysis and original insights",
+    capstone_project: "Capstone project integrating coursework and research, demonstrating mastery of subject",
+    
+    // Articles & Publications
+    journal_article: "Article for academic or legal journal publication with focused argumentation and scholarly engagement",
+    law_review_article: "Article for law review publication with rigorous legal analysis and scholarly contribution",
+    opinion_piece: "Opinion piece or editorial with persuasive argumentation and clear position",
+    book_chapter: "Chapter for edited volume or monograph, contributing to broader scholarly work",
+    
+    // Practice-Oriented
+    practice_guide: "Guide for legal practitioners with practical advice and procedural guidance",
+    compliance_manual: "Manual for regulatory compliance with step-by-step procedures and requirements",
+    training_material: "Educational or training material with clear explanations and practical examples",
+    
+    // Other
+    other: "Custom research output with flexible structure and approach",
+  }
+
+  const projectTypeContext = projectTypeDescriptions[project_type] || projectTypeDescriptions.research_paper
+
+  /* ---------- Approach context ---------- */
+
+  let approachContext = ""
+  if (approach?.argumentation_line) {
+    const line = approach.argumentation_line
+    approachContext = `
+SELECTED ARGUMENTATION APPROACH:
+- Title: ${line.title}
+- Description: ${line.description}
+- Approach Type: ${line.approach}
+- Focus Areas: ${line.focus_areas.join(", ")}
+- Recommended Tone: ${line.tone}
+- Proposed Structure: ${line.structure.sections.map(s => `${s.section_index}. ${s.title} - ${s.description}`).join("\n  ")}
+`
+  } else if (approach) {
+    approachContext = `
+SELECTED APPROACH CONFIGURATION:
+- Tone: ${approach.tone || "analytical"}
+- Structure Type: ${approach.structure_type || "traditional"}
+- Focus Areas: ${approach.focus_areas?.join(", ") || "general analysis"}
+${approach.sections ? `- Custom Sections:\n  ${approach.sections.map(s => `${s.section_index}. ${s.title} - ${s.description}`).join("\n  ")}` : ""}
+`
+  }
 
   /* ---------- Prompt assembly ---------- */
 
@@ -52,7 +211,11 @@ You are performing STEP 3: REASONED SYNTHESIS.
 All evidence has already been retrieved, ranked, and fixed.
 You MUST NOT perform retrieval, guessing, supplementation, or background explanation.
 
-Your task is to construct a rigorous, argumentative academic research output strictly from the evidence provided.
+Your task is to construct a rigorous, argumentative research output strictly from the evidence provided.
+
+PROJECT TYPE: ${projectTypeContext}
+${sourceContext}${sourceDetailsContext}
+${approachContext ? `\n${approachContext}` : ""}
 
 ---------------------------------------------
 CORE CONSTRAINTS (ABSOLUTE)
@@ -72,6 +235,15 @@ ARGUMENTATION REQUIREMENTS (CRITICAL)
 ---------------------------------------------
 This is NOT a descriptive or summary task.
 
+${approach?.tone
+  ? `TONE REQUIREMENT: Write in a ${approach.tone} tone. ${approach.argumentation_line?.tone === approach.tone ? `This aligns with the selected argumentation approach.` : ""}
+`
+  : ""}
+${approach?.focus_areas && approach.focus_areas.length > 0
+  ? `FOCUS AREAS: Pay particular attention to: ${approach.focus_areas.join(", ")}. Ensure these areas are adequately addressed in your analysis.
+`
+  : ""}
+
 Each paragraph MUST:
 - Begin from an identifiable analytical position or claim
 - Use one or more evidence chunks to:
@@ -80,6 +252,9 @@ Each paragraph MUST:
   - contrast it with another position, or
   - expose tension or evolution between sources
 - Explicitly explain WHY the cited evidence supports the argument being made
+${approach?.argumentation_line?.approach
+  ? `- Follow the ${approach.argumentation_line.approach} approach as outlined in the selected argumentation line`
+  : ""}
 
 You MUST NOT:
 - Merely restate or paraphrase the evidence
@@ -94,14 +269,58 @@ You MAY:
 ---------------------------------------------
 STRUCTURAL LENGTH REQUIREMENTS (MANDATORY)
 ---------------------------------------------
-- You MUST produce AT LEAST 6 sections.
+${approach?.argumentation_line?.structure?.sections
+  ? `- You MUST follow the proposed structure with ${approach.argumentation_line.structure.sections.length} sections as outlined above.
 - Each section MUST contain AT LEAST 3 paragraphs.
 - Each paragraph MUST be between 90 and 130 words.
+- Section titles should align with the proposed structure, but you may refine them based on evidence.
+`
+  : approach?.sections
+  ? `- You MUST follow the custom structure with ${approach.sections.length} sections as outlined above.
+- Each section MUST contain AT LEAST 3 paragraphs.
+- Each paragraph MUST be between 90 and 130 words.
+- Section titles should align with the proposed structure, but you may refine them based on evidence.
+`
+  : `- You MUST produce AT LEAST 6 sections.
+- Each section MUST contain AT LEAST 3 paragraphs.
+- Each paragraph MUST be between 90 and 130 words.
+`}
 - Do NOT collapse ideas to reduce paragraph count.
 - Analytical depth must come from argumentative reasoning grounded in the evidence.
 - You MAY cite multiple evidence IDs in a single paragraph.
 
 Failure to meet these structural requirements is a violation.
+
+---------------------------------------------
+SOURCE TYPE AWARENESS (CRITICAL)
+---------------------------------------------
+You have access to evidence from different source types. Consider the authority and nature of each source:
+
+PRIMARY LAW SOURCES (Highest Authority):
+- Case Law: Judicial decisions and precedents - cite for legal principles and reasoning
+- Statutes: Legislative enactments - cite for black-letter law
+- Regulations: Administrative rules - cite for regulatory frameworks
+- Constitution: Constitutional provisions - cite for foundational principles
+- Treaties: International agreements - cite for international law
+
+ACADEMIC / SECONDARY SOURCES (Interpretive Authority):
+- Journal Articles: Scholarly analysis and critique - cite for academic perspectives
+- Books: Comprehensive treatments - cite for theoretical frameworks
+- Commentary/Textbooks: Doctrinal explanations - cite for established interpretations
+- Working Papers: Emerging scholarship - cite for novel approaches
+- Theses: Extended research - cite for detailed analysis
+
+POLICY / INSTITUTIONAL SOURCES (Contextual Authority):
+- Committee Reports, Law Commission Reports, White Papers, Government Reports: Policy analysis and recommendations - cite for policy context and reform proposals
+
+DIGITAL / INFORMAL SOURCES (Lower Authority):
+- Blog Posts, News Articles, Websites: Contemporary commentary - use sparingly, primarily for current events or public discourse
+
+WEIGHTING GUIDANCE:
+- Prioritize primary law sources for legal propositions
+- Use academic sources to support interpretations and theoretical frameworks
+- Reference policy sources for context and reform discussions
+- Balance source types appropriately based on the project type and query
 
 ---------------------------------------------
 CHUNK SEMANTICS (CRITICAL)
@@ -111,15 +330,19 @@ Each evidence chunk is:
 - Contextually bounded
 - Independently citable
 - Identified by a unique, opaque identifier (the bracketed ID)
+- Tagged with its source type for appropriate weighting
 
 You MAY:
 - Combine multiple chunks to support a single argumentative move
 - Contrast chunks that express different positions or emphases
+- Weight primary law sources more heavily for legal propositions
+- Use academic sources to support analytical frameworks
 
 You MAY NOT:
 - Infer facts beyond the explicit wording of a chunk
 - Treat a chunk as summarising an entire document
 - Introduce concepts not grounded in the provided text
+- Ignore source type when determining authority and weight
 
 ---------------------------------------------
 QUERY

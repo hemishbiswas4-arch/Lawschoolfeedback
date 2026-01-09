@@ -32,25 +32,99 @@ export default function Page() {
   const [docType, setDocType] = useState<DocumentType>("draft")
   const [loading, setLoading] = useState(false)
 
-  /* ================= AUTH GUARD ================= */
+  /* ================= AUTH GUARD + LOAD DOCS ================= */
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session?.user) {
+    const load = async () => {
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session?.user) {
         router.replace("/login")
+        return
       }
-    })
+
+      // Load recent documents
+      const { data: docs } = await supabase
+        .from("documents")
+        .select("id, title, created_at")
+        .eq("owner_id", sessionData.session.user.id)
+        .order("created_at", { ascending: false })
+        .limit(10)
+
+      if (docs) {
+        setUploadedDocs(docs)
+      }
+    }
+
+    load()
   }, [router])
+
+  /* ================= FILE HANDLING ================= */
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || [])
+    const pdfFiles = selectedFiles.filter(f => f.type === "application/pdf")
+    
+    if (selectedFiles.length !== pdfFiles.length) {
+      alert("Only PDF files are supported. Non-PDF files were ignored.")
+    }
+
+    const newFiles: FileWithPreview[] = pdfFiles.map(file => ({
+      file,
+      id: `${Date.now()}-${Math.random()}`,
+      preview: file.name,
+    }))
+
+    setFiles(prev => [...prev, ...newFiles])
+  }
+
+  const removeFile = (id: string) => {
+    setFiles(prev => prev.filter(f => f.id !== id))
+  }
+
+  const deleteDocument = async (docId: string, title: string) => {
+    if (!confirm(`Delete "${title}"?`)) return
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    const user = sessionData.session?.user
+
+    if (!user) return
+
+    try {
+      // Get storage path before deleting
+      const { data: doc } = await supabase
+        .from("documents")
+        .select("storage_path")
+        .eq("id", docId)
+        .eq("owner_id", user.id)
+        .single()
+
+      // Delete from database
+      const { error: deleteError } = await supabase
+        .from("documents")
+        .delete()
+        .eq("id", docId)
+        .eq("owner_id", user.id)
+
+      if (deleteError) throw deleteError
+
+      // Delete from storage if path exists
+      if (doc?.storage_path) {
+        await supabase.storage
+          .from("document uploads")
+          .remove([doc.storage_path])
+      }
+
+      // Refresh list
+      setUploadedDocs(prev => prev.filter(d => d.id !== docId))
+    } catch (err: any) {
+      alert(err.message || "Failed to delete document.")
+    }
+  }
 
   /* ================= UPLOAD ================= */
 
-  const uploadPdf = async () => {
-    if (!file || loading) return
-
-    if (file.type !== "application/pdf") {
-      alert("Only PDF files are supported in the beta.")
-      return
-    }
+  const uploadPdfs = async () => {
+    if (files.length === 0 || loading) return
 
     setLoading(true)
 
@@ -63,38 +137,58 @@ export default function Page() {
       return
     }
 
-    const storagePath = `${user.id}/${Date.now()}-${file.name}`
-
     try {
-      /* 1) Upload PDF */
-      const { error: uploadError } = await supabase.storage
-        .from("document uploads")
-        .upload(storagePath, file, {
-          contentType: "application/pdf",
-        })
+      const uploadPromises = files.map(async (fileWithPreview) => {
+        const file = fileWithPreview.file
+        const storagePath = `${user.id}/${Date.now()}-${file.name}`
 
-      if (uploadError) throw uploadError
-
-      /* 2) Insert document metadata */
-      const { data: doc, error: insertError } = await supabase
-        .from("documents")
-        .insert({
-          owner_id: user.id,
-          title: file.name,
-          storage_path: storagePath,
-          document_type: docType,
-        })
-        .select("id")
-        .single()
-
-      if (insertError || !doc) {
-        await supabase.storage
+        /* 1) Upload PDF */
+        const { error: uploadError } = await supabase.storage
           .from("document uploads")
-          .remove([storagePath])
-        throw insertError || new Error("Failed to save document.")
+          .upload(storagePath, file, {
+            contentType: "application/pdf",
+          })
+
+        if (uploadError) throw uploadError
+
+        /* 2) Insert document metadata */
+        const { data: doc, error: insertError } = await supabase
+          .from("documents")
+          .insert({
+            owner_id: user.id,
+            title: file.name,
+            storage_path: storagePath,
+            document_type: docType,
+          })
+          .select("id")
+          .single()
+
+        if (insertError || !doc) {
+          await supabase.storage
+            .from("document uploads")
+            .remove([storagePath])
+          throw insertError || new Error("Failed to save document.")
+        }
+
+        return doc
+      })
+
+      await Promise.all(uploadPromises)
+
+      // Refresh documents list
+      const { data: docs } = await supabase
+        .from("documents")
+        .select("id, title, created_at")
+        .eq("owner_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(10)
+
+      if (docs) {
+        setUploadedDocs(docs)
       }
 
-      router.replace("/dashboard")
+      setFiles([])
+      setLoading(false)
     } catch (err: any) {
       alert(err.message || "Upload failed.")
       setLoading(false)
@@ -206,8 +300,8 @@ export default function Page() {
       borderRadius: "8px",
       fontSize: "14px",
       fontWeight: 600,
-      cursor: loading || !file ? "not-allowed" : "pointer",
-      opacity: loading || !file ? 0.5 : 1,
+      cursor: loading || files.length === 0 ? "not-allowed" : "pointer",
+      opacity: loading || files.length === 0 ? 0.5 : 1,
       marginTop: "8px",
       transition: "background 0.2s",
     }
@@ -257,29 +351,157 @@ export default function Page() {
 
         <div style={styles.formGroup}>
           <label style={styles.label}>
-            Select File
+            Select Files (PDF only)
           </label>
           <input
             type="file"
             accept="application/pdf"
+            multiple
             disabled={loading}
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            onChange={handleFileSelect}
             style={styles.fileInput}
           />
-          {file && (
-            <div style={{ marginTop: "8px", fontSize: "12px", color: "#6b7280" }}>
-              Selected: <span style={{ fontWeight: 500, color: "#111" }}>{file.name}</span> ({(file.size / 1024 / 1024).toFixed(2)} MB)
+          
+          {files.length > 0 && (
+            <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+              {files.map((fileWithPreview) => (
+                <div
+                  key={fileWithPreview.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 12px",
+                    background: "#f9fafb",
+                    borderRadius: "6px",
+                    border: "1px solid #e5e7eb",
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {fileWithPreview.file.name}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>
+                      {(fileWithPreview.file.size / 1024 / 1024).toFixed(2)} MB
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removeFile(fileWithPreview.id)}
+                    disabled={loading}
+                    style={{
+                      marginLeft: "12px",
+                      padding: "4px 8px",
+                      background: "none",
+                      border: "none",
+                      color: "#dc2626",
+                      cursor: loading ? "not-allowed" : "pointer",
+                      fontSize: "12px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
 
         <button
-          onClick={uploadPdf}
-          disabled={loading || !file}
+          onClick={uploadPdfs}
+          disabled={loading || files.length === 0}
           style={styles.button}
         >
-          {loading ? "Uploading Document..." : "Upload and Continue"}
+          {loading ? `Uploading ${files.length} file(s)...` : `Upload ${files.length} file${files.length !== 1 ? 's' : ''}`}
         </button>
+
+        {/* RECENT DOCUMENTS */}
+        {uploadedDocs.length > 0 && (
+          <div style={{ marginTop: "32px", paddingTop: "24px", borderTop: "1px solid #e5e7eb" }}>
+            <h2 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "16px", color: "#374151" }}>
+              Recent Documents
+            </h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {uploadedDocs.map((doc) => (
+                <div
+                  key={doc.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 12px",
+                    background: "#fff",
+                    borderRadius: "6px",
+                    border: "1px solid #e5e7eb",
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {doc.title}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>
+                      {new Date(doc.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deleteDocument(doc.id, doc.title)}
+                    disabled={loading}
+                    style={{
+                      marginLeft: "12px",
+                      padding: "4px 8px",
+                      background: "none",
+                      border: "none",
+                      color: "#dc2626",
+                      cursor: loading ? "not-allowed" : "pointer",
+                      fontSize: "12px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* QUICK NAVIGATION */}
+        <div style={{ marginTop: "24px", paddingTop: "24px", borderTop: "1px solid #e5e7eb" }}>
+          <div style={{ fontSize: "12px", fontWeight: 600, color: "#6b7280", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Quick Navigation
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <Link
+              href="/projects"
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                background: "#f3f4f6",
+                color: "#374151",
+                fontSize: "13px",
+                fontWeight: 500,
+                textDecoration: "none",
+                border: "1px solid #e5e7eb",
+              }}
+            >
+              View Projects
+            </Link>
+            <Link
+              href="/projects/new"
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                background: "#111",
+                color: "#fff",
+                fontSize: "13px",
+                fontWeight: 500,
+                textDecoration: "none",
+              }}
+            >
+              New Project
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   )

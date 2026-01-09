@@ -32,6 +32,146 @@ const bedrock = new BedrockRuntimeClient({
 
 const EMBED_MODEL_ID = "cohere.embed-english-v3"
 
+/* ================= UTILS ================= */
+
+const sleep = (ms: number) =>
+  new Promise(resolve => setTimeout(resolve, ms))
+
+async function embedWithRetry(text: string, maxRetries = 3): Promise<number[]> {
+  let attempt = 0
+  while (attempt < maxRetries) {
+    try {
+      const embedRes = await bedrock.send(
+        new InvokeModelCommand({
+          modelId: EMBED_MODEL_ID,
+          contentType: "application/json",
+          accept: "application/json",
+          body: JSON.stringify({
+            texts: [text.slice(0, 2048)],
+            input_type: "search_document",
+          }),
+        })
+      )
+
+      const embedJson = JSON.parse(
+        Buffer.from(embedRes.body!).toString("utf-8")
+      )
+
+      const embedding = embedJson?.embeddings?.[0]
+      if (!embedding) {
+        throw new Error("No embedding in response")
+      }
+
+      return embedding
+    } catch (err: any) {
+      attempt++
+      if (err?.name === "ThrottlingException" && attempt < maxRetries) {
+        const wait = Math.min(1000 * attempt, 5000)
+        console.warn(`Embedding throttled, retrying in ${wait}ms (attempt ${attempt})`)
+        await sleep(wait)
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error("Embedding failed after retries")
+}
+
+/* ================= BATCH EMBEDDING ================= */
+
+async function embedBatchWithRetry(texts: string[], maxRetries = 3): Promise<number[][]> {
+  let attempt = 0
+  while (attempt < maxRetries) {
+    try {
+      const embedRes = await bedrock.send(
+        new InvokeModelCommand({
+          modelId: EMBED_MODEL_ID,
+          contentType: "application/json",
+          accept: "application/json",
+          body: JSON.stringify({
+            texts: texts.map(t => t.slice(0, 2048)),
+            input_type: "search_document",
+          }),
+        })
+      )
+
+      const embedJson = JSON.parse(
+        Buffer.from(embedRes.body!).toString("utf-8")
+      )
+
+      const embeddings = embedJson?.embeddings
+      if (!embeddings || embeddings.length !== texts.length) {
+        throw new Error("Mismatched embedding count")
+      }
+
+      return embeddings
+    } catch (err: any) {
+      attempt++
+      if (err?.name === "ThrottlingException" && attempt < maxRetries) {
+        const wait = Math.min(1000 * attempt, 5000)
+        console.warn(`Batch embedding throttled, retrying in ${wait}ms (attempt ${attempt})`)
+        await sleep(wait)
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error("Batch embedding failed after retries")
+}
+
+/* ================= PARALLEL EMBEDDING WITH CONCURRENCY LIMIT ================= */
+
+async function embedChunksParallel(
+  chunks: Array<{ text: string; index: number }>,
+  concurrency = 5,
+  batchSize = 8 // Cohere supports up to 96, but use smaller batches for reliability
+): Promise<Map<number, number[]>> {
+  const results = new Map<number, number[]>()
+  const errors = new Map<number, Error>()
+
+  // Process chunks in batches with concurrency limit
+  const processBatch = async (batchChunks: Array<{ text: string; index: number }>) => {
+    try {
+      const embeddings = await embedBatchWithRetry(batchChunks.map(c => c.text))
+      batchChunks.forEach((chunk, idx) => {
+        results.set(chunk.index, embeddings[idx])
+      })
+    } catch (err) {
+      // Fallback to individual embedding for failed batch
+      console.warn(`Batch embedding failed, falling back to individual embeddings for ${batchChunks.length} chunks`)
+      await Promise.all(
+        batchChunks.map(chunk =>
+          embedWithRetry(chunk.text)
+            .then(emb => results.set(chunk.index, emb))
+            .catch(e => {
+              errors.set(chunk.index, e as Error)
+              console.error(`Failed to embed chunk ${chunk.index}:`, e)
+            })
+        )
+      )
+    }
+  }
+
+  // Process in parallel batches with concurrency limit
+  const batches: Array<Array<{ text: string; index: number }>> = []
+  for (let i = 0; i < chunks.length; i += batchSize) {
+    batches.push(chunks.slice(i, i + batchSize))
+  }
+
+  // Process batches with concurrency limit
+  for (let i = 0; i < batches.length; i += concurrency) {
+    const concurrentBatches = batches.slice(i, i + concurrency)
+    await Promise.all(concurrentBatches.map(batch => processBatch(batch)))
+  }
+
+  // Log any errors but don't fail completely
+  if (errors.size > 0) {
+    console.warn(`Failed to embed ${errors.size} chunks out of ${chunks.length}, continuing with ${results.size} successful embeddings...`)
+  }
+
+  return results
+}
+
 /* ================= NLP SETUP ================= */
 
 const SentenceTokenizer =
@@ -149,6 +289,17 @@ export async function POST(req: NextRequest) {
         let globalChunkIndex = 0
         let globalCharCursor = 0
 
+        // Collect all chunks first
+        const allChunks: Array<{
+          text: string
+          pageNum: number
+          paragraphIndex: number
+          rects: NormalizedRect[]
+          charStart: number
+          charEnd: number
+          chunkIndex: number
+        }> = []
+
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           const page = await pdf.getPage(pageNum)
           const viewport = page.getViewport({ scale: 1 })
@@ -164,53 +315,82 @@ export async function POST(req: NextRequest) {
 
           for (const chunk of chunks) {
             const text = chunk.text.trim()
-            if (!text) continue
-
-            /* ================= EMBED ================= */
-
-            const embedRes = await bedrock.send(
-              new InvokeModelCommand({
-                modelId: EMBED_MODEL_ID,
-                contentType: "application/json",
-                accept: "application/json",
-                body: JSON.stringify({
-                  texts: [text.slice(0, 2048)],
-                  input_type: "search_document",
-                }),
-              })
-            )
-
-            const embedJson = JSON.parse(
-              Buffer.from(embedRes.body!).toString("utf-8")
-            )
-
-            const embedding = embedJson?.embeddings?.[0]
-            if (!embedding) {
-              throw new Error("Embedding failed")
-            }
+            if (!text || text.length < 10) continue // Skip very short chunks
 
             const charStart = globalCharCursor
             const charEnd = globalCharCursor + text.length
             globalCharCursor = charEnd
 
-            await supabaseAdmin.from("source_chunks").insert({
+            allChunks.push({
+              text,
+              pageNum,
+              paragraphIndex: chunk.paragraph_index,
+              rects: chunk.rects,
+              charStart,
+              charEnd,
+              chunkIndex: globalChunkIndex++,
+            })
+          }
+        }
+
+        /* ================= BATCH EMBED ALL CHUNKS IN PARALLEL ================= */
+
+        console.log(`Embedding ${allChunks.length} chunks in parallel...`)
+        const chunksForEmbedding = allChunks.map((c, idx) => ({
+          text: c.text,
+          index: idx,
+        }))
+
+        const embeddingMap = await embedChunksParallel(chunksForEmbedding, 5, 10)
+
+        /* ================= BATCH INSERT ALL CHUNKS ================= */
+
+        const chunksToInsert = allChunks
+          .map((chunk, idx) => {
+            const embedding = embeddingMap.get(idx)
+            if (!embedding) return null
+
+            return {
               project_id: projectId,
               source_id: source.id,
-              text,
-              page_number: pageNum,
-              paragraph_index: chunk.paragraph_index,
-              chunk_index: globalChunkIndex++,
-              char_start: charStart,
-              char_end: charEnd,
+              text: chunk.text,
+              page_number: chunk.pageNum,
+              paragraph_index: chunk.paragraphIndex,
+              chunk_index: chunk.chunkIndex,
+              char_start: chunk.charStart,
+              char_end: chunk.charEnd,
               rects_json: chunk.rects,
               embedding,
               checksum: crypto
                 .createHash("sha256")
-                .update(text)
+                .update(chunk.text)
                 .digest("hex"),
-            })
+            }
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null)
+
+        // Insert in batches of 100 to avoid payload size limits
+        const BATCH_SIZE = 100
+        for (let i = 0; i < chunksToInsert.length; i += BATCH_SIZE) {
+          const batch = chunksToInsert.slice(i, i + BATCH_SIZE)
+          const { error: insertError } = await supabaseAdmin
+            .from("source_chunks")
+            .insert(batch)
+
+          if (insertError) {
+            console.error(`Failed to insert batch ${i / BATCH_SIZE + 1}:`, insertError)
+            // Try individual inserts as fallback
+            for (const chunk of batch) {
+              try {
+                await supabaseAdmin.from("source_chunks").insert(chunk)
+              } catch (err) {
+                console.error(`Failed to insert chunk ${chunk.chunk_index}:`, err)
+              }
+            }
           }
         }
+
+        console.log(`Inserted ${chunksToInsert.length} chunks`)
 
         /* ================= FINALIZE ================= */
 
@@ -262,17 +442,36 @@ function normalizeParagraphs(
 ): Paragraph[] {
   const paras: Paragraph[] = []
   let current: Paragraph = { text: "", rects: [] }
+  
+  // Track font sizes to detect headings
+  const fontSizes: number[] = []
+  let currentFontSize = 0
 
   for (const item of items) {
     const str = item.str as string
-    const [x, y] = item.transform.slice(4, 6)
-
-    if (!str.trim()) {
+    if (!str || !str.trim()) {
       if (current.text.trim()) {
         paras.push(current)
         current = { text: "", rects: [] }
       }
       continue
+    }
+
+    const [x, y] = item.transform.slice(4, 6)
+    const fontSize = item.transform[0] || 12 // Extract font size from transform matrix
+    fontSizes.push(fontSize)
+    currentFontSize = fontSize
+
+    // Detect potential headings (larger font, centered, or all caps)
+    const isPotentialHeading = 
+      fontSize > 14 || // Larger font
+      (str.length < 100 && /^[A-Z\s]+$/.test(str.trim())) || // All caps short text
+      (Math.abs(x / pageWidth - 0.5) < 0.1 && str.length < 150) // Centered short text
+
+    // Break paragraph on heading indicators
+    if (isPotentialHeading && current.text.trim()) {
+      paras.push(current)
+      current = { text: "", rects: [] }
     }
 
     current.rects.push({
@@ -289,48 +488,105 @@ function normalizeParagraphs(
   return paras
 }
 
-/* ================= CONTEXTUAL CHUNKING ================= */
+/* ================= IMPROVED CONTEXTUAL CHUNKING ================= */
 
 function contextualChunkParagraphs(paragraphs: Paragraph[]) {
-  const MAX_CHARS = 900
-  const MIN_CHARS = 250
+  const MAX_CHARS = 1000 // Slightly increased for better context
+  const MIN_CHARS = 200 // Minimum chunk size
+  const OVERLAP_CHARS = 150 // Overlap between chunks for better retrieval
+  const MAX_CHUNK_CHARS = 1200 // Hard limit
 
   const chunks: {
     text: string
     rects: NormalizedRect[]
     paragraph_index: number
+    isHeading?: boolean
   }[] = []
 
   let bufferText = ""
   let bufferRects: NormalizedRect[] = []
   let bufferStartPara = 0
+  let lastChunkEndPara = -1
 
   for (let i = 0; i < paragraphs.length; i++) {
     const p = paragraphs[i]
-    const candidate = bufferText + " " + p.text
+    const paraText = p.text.trim()
+    
+    if (!paraText) continue
 
-    const topicBreak =
-      bufferText && !isSemanticallyContinuous(bufferText, p.text)
+    // Detect headings (short paragraphs, all caps, or numbered sections)
+    const isHeading = 
+      paraText.length < 150 &&
+      (/^[A-Z\s\d\.]+$/.test(paraText) || 
+       /^\d+[\.\)]\s+[A-Z]/.test(paraText) ||
+       /^(Chapter|Section|Part|Article)\s+\d+/i.test(paraText))
+
+    const candidate = bufferText ? bufferText + " " + paraText : paraText
+
+    // Check for topic breaks
+    const topicBreak = bufferText && !isSemanticallyContinuous(bufferText, paraText)
+    
+    // Check for legal citation patterns (strong break indicators)
+    const hasCitation = /\(\d{4}\)|\[\d{4}\]|v\.|v\s|See\s|Cf\.|Id\.|Supra|Infra/i.test(paraText)
+    
+    // Force break on headings (unless buffer is too small)
+    const shouldBreakOnHeading = isHeading && bufferText.length >= MIN_CHARS
+
+    // Force break on citations if buffer is substantial
+    const shouldBreakOnCitation = hasCitation && bufferText.length >= MIN_CHARS * 1.5
 
     if (
       candidate.length > MAX_CHARS ||
-      (topicBreak && bufferText.length >= MIN_CHARS)
+      (topicBreak && bufferText.length >= MIN_CHARS) ||
+      shouldBreakOnHeading ||
+      shouldBreakOnCitation ||
+      candidate.length > MAX_CHUNK_CHARS
     ) {
-      chunks.push({
-        text: bufferText.trim(),
-        rects: bufferRects,
-        paragraph_index: bufferStartPara,
-      })
+      // Save current chunk
+      if (bufferText.trim()) {
+        chunks.push({
+          text: bufferText.trim(),
+          rects: bufferRects,
+          paragraph_index: bufferStartPara,
+        })
+        lastChunkEndPara = i - 1
+      }
 
-      bufferText = p.text
-      bufferRects = [...p.rects]
-      bufferStartPara = i
+      // Start new chunk with overlap if possible
+      if (i > 0 && OVERLAP_CHARS > 0) {
+        const overlapStart = Math.max(bufferStartPara, lastChunkEndPara - 2)
+        let overlapText = ""
+        let overlapRects: NormalizedRect[] = []
+        
+        for (let j = overlapStart; j < i && j < paragraphs.length; j++) {
+          const overlapPara = paragraphs[j]
+          if (overlapText.length < OVERLAP_CHARS) {
+            overlapText += (overlapText ? " " : "") + overlapPara.text.trim()
+            overlapRects.push(...overlapPara.rects)
+          }
+        }
+        
+        if (overlapText) {
+          bufferText = overlapText + " " + paraText
+          bufferRects = [...overlapRects, ...p.rects]
+          bufferStartPara = overlapStart
+        } else {
+          bufferText = paraText
+          bufferRects = [...p.rects]
+          bufferStartPara = i
+        }
+      } else {
+        bufferText = paraText
+        bufferRects = [...p.rects]
+        bufferStartPara = i
+      }
     } else {
       bufferText = candidate
       bufferRects.push(...p.rects)
     }
   }
 
+  // Add final chunk
   if (bufferText.trim()) {
     chunks.push({
       text: bufferText.trim(),
@@ -339,16 +595,49 @@ function contextualChunkParagraphs(paragraphs: Paragraph[]) {
     })
   }
 
-  return chunks
+  // Post-process: ensure no chunks are too small (merge with next)
+  const finalChunks: typeof chunks = []
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i]
+    if (chunk.text.length < MIN_CHARS && i < chunks.length - 1) {
+      // Merge small chunk with next
+      const nextChunk = chunks[i + 1]
+      finalChunks.push({
+        text: chunk.text + " " + nextChunk.text,
+        rects: [...chunk.rects, ...nextChunk.rects],
+        paragraph_index: chunk.paragraph_index,
+      })
+      i++ // Skip next chunk as it's been merged
+    } else {
+      finalChunks.push(chunk)
+    }
+  }
+
+  return finalChunks
 }
 
-/* ================= SEMANTIC CONTINUITY ================= */
+/* ================= IMPROVED SEMANTIC CONTINUITY ================= */
 
 function isSemanticallyContinuous(a: string, b: string) {
   const prev = a.trim()
   const next = b.trim()
   if (!prev || !next) return true
 
+  // Strong break indicators (definitely not continuous)
+  const strongBreakPatterns = [
+    /^[A-Z][A-Z\s]{10,}$/, // All caps heading
+    /^\d+[\.\)]\s+[A-Z]/, // Numbered section
+    /^(Chapter|Section|Part|Article|Subsection)\s+\d+/i, // Explicit section markers
+    /^Table\s+\d+/i, // Table reference
+    /^Figure\s+\d+/i, // Figure reference
+    /^Appendix\s+[A-Z\d]/i, // Appendix
+  ]
+
+  for (const pattern of strongBreakPatterns) {
+    if (pattern.test(next)) return false
+  }
+
+  // Check sentence completion
   if (sentenceTokenizer) {
     try {
       const sents = sentenceTokenizer.tokenize(prev)
@@ -359,17 +648,41 @@ function isSemanticallyContinuous(a: string, b: string) {
     if (!/[.!?]$/.test(prev)) return true
   }
 
+  // Continuation indicators (definitely continuous)
   if (/^[a-z]/.test(next)) return true
 
-  if (
-    /^(and|or|but|which|that|because|however|therefore|thus|whereas)\b/i.test(
-      next
-    )
-  ) return true
+  const continuationWords = [
+    /^(and|or|but|which|that|because|however|therefore|thus|whereas|furthermore|moreover|additionally|also|similarly|likewise|conversely|nevertheless|nonetheless|accordingly|consequently|hence|thus|indeed|specifically|particularly|notably)\b/i
+  ]
 
+  for (const pattern of continuationWords) {
+    if (pattern.test(next)) return true
+  }
+
+  // Legal citation patterns (usually indicate new topic)
+  const legalCitationPatterns = [
+    /\(\d{4}\)/, // Year in parentheses
+    /\[\d{4}\]/, // Year in brackets
+    /v\.|v\s/, // Case citation
+    /^See\s/, // See citation
+    /^Cf\./, // Compare citation
+    /^Id\./, // Id citation
+    /^Supra/, // Supra citation
+    /^Infra/, // Infra citation
+  ]
+
+  for (const pattern of legalCitationPatterns) {
+    if (pattern.test(next) && prev.length > 100) {
+      // Citation after substantial text likely indicates new topic
+      return false
+    }
+  }
+
+  // List indicators (usually continuous)
   if (/^\(?[a-zivx]+\)/i.test(next) || /^\d+(\.\d+)*\s/.test(next))
     return true
 
+  // Token overlap analysis
   const tokenize = (s: string) =>
     new Set(
       s
@@ -384,17 +697,30 @@ function isSemanticallyContinuous(a: string, b: string) {
   let overlap = 0
   for (const t of A) if (B.has(t)) overlap++
 
-  if (overlap / Math.max(1, Math.min(A.size, B.size)) > 0.2) return true
+  const overlapRatio = overlap / Math.max(1, Math.min(A.size, B.size))
+  
+  // Higher threshold for continuity (more strict)
+  if (overlapRatio > 0.25) return true
 
+  // Noun overlap analysis
   try {
     const na = nlp(prev).nouns().out("array") as string[]
     const nb = nlp(next).nouns().out("array") as string[]
 
-    const set = new Set(na.map(n => n.toLowerCase()))
-    for (const n of nb) {
-      if (set.has(n.toLowerCase())) return true
+    if (na.length > 0 && nb.length > 0) {
+      const nounSet = new Set(na.map(n => n.toLowerCase()))
+      let nounOverlap = 0
+      for (const n of nb) {
+        if (nounSet.has(n.toLowerCase())) nounOverlap++
+      }
+      
+      // If significant noun overlap, likely continuous
+      if (nounOverlap / Math.max(na.length, nb.length) > 0.3) {
+        return true
+      }
     }
   } catch {}
 
+  // Default to not continuous if no strong indicators
   return false
 }

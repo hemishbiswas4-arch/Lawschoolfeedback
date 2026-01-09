@@ -45,6 +45,31 @@ type ReasoningRunInput = {
   project_id: string
   query_text: string
   mode?: "generate" | "retrieve"
+  approach?: {
+    argumentation_line?: {
+      id: string
+      title: string
+      description: string
+      approach: string
+      focus_areas: string[]
+      tone: string
+      structure: {
+        sections: Array<{
+          section_index: number
+          title: string
+          description: string
+        }>
+      }
+    }
+    tone?: string
+    structure_type?: string
+    focus_areas?: string[]
+    sections?: Array<{
+      section_index: number
+      title: string
+      description: string
+    }>
+  }
 }
 
 type EvidenceMeta = {
@@ -196,7 +221,7 @@ export async function POST(req: Request) {
 
   try {
     const body = (await req.json()) as ReasoningRunInput
-    const { project_id, query_text, mode = "generate" } = body
+    const { project_id, query_text, mode = "generate", approach } = body
 
     if (!project_id || !query_text?.trim()) {
       return NextResponse.json(
@@ -233,12 +258,13 @@ export async function POST(req: Request) {
 
     /* ================= RETRIEVAL ================= */
 
+    // Retrieve more chunks initially for better selection
     const { data: rawChunks, error } = await supabase.rpc(
       "match_source_chunks",
       {
         query_embedding: queryEmbedding,
         match_project_id: project_id,
-        match_count: 80,
+        match_count: 150, // Increased from 80 for better selection pool
       }
     )
 
@@ -248,6 +274,10 @@ export async function POST(req: Request) {
         { status: 500 }
       )
     }
+
+    log(runId, "RETRIEVAL_COMPLETE", {
+      chunks_retrieved: rawChunks?.length || 0,
+    })
 
     if (mode !== "generate") {
       return NextResponse.json({ retrieved_chunks: rawChunks })
@@ -265,35 +295,280 @@ export async function POST(req: Request) {
     generationInFlight = true
 
     try {
-      /* ================= SOURCE-BALANCED SELECTION ================= */
+      /* ================= LOAD PROJECT & SOURCE CONTEXT ================= */
 
+      const { data: project } = await supabase
+        .from("projects")
+        .select("project_type, title")
+        .eq("id", project_id)
+        .single()
+
+      const projectType = project?.project_type || "research_paper"
+      log(runId, "PROJECT_CONTEXT", { project_type: projectType, title: project?.title })
+
+      // Load source types for this project
+      const { data: sources } = await supabase
+        .from("project_sources")
+        .select("id, type, title")
+        .eq("project_id", project_id)
+        .eq("status", "complete")
+
+      const sourceTypes = sources?.map(s => s.type) || []
+      const sourceTypeDistribution = sourceTypes.reduce((acc: Record<string, number>, type) => {
+        acc[type] = (acc[type] || 0) + 1
+        return acc
+      }, {})
+
+      log(runId, "SOURCE_CONTEXT", {
+        total_sources: sources?.length || 0,
+        source_types: sourceTypeDistribution,
+        source_details: sources?.map(s => ({ id: s.id, type: s.type, title: s.title }))
+      })
+
+      /* ================= ENHANCED CHUNK SELECTION WITH RE-RANKING ================= */
+
+      // Map source IDs to their types
+      const sourceIdToType = new Map<string, string>()
+      for (const source of sources || []) {
+        sourceIdToType.set(source.id, source.type)
+      }
+
+      // Score and re-rank chunks using multiple factors
+      const scoredChunks = (rawChunks ?? []).map((c: any) => {
+        const text = c.text ?? ""
+        const sourceType = sourceIdToType.get(c.source_id) || "other"
+        
+        // Base similarity score (from vector search)
+        const similarityScore = c.similarity || 0
+        
+        // Source type priority
+        const sourceTypePriority: Record<string, number> = {
+          case: 1.2,
+          statute: 1.2,
+          regulation: 1.15,
+          constitution: 1.2,
+          treaty: 1.15,
+          journal_article: 1.1,
+          book: 1.05,
+          commentary: 1.05,
+          working_paper: 1.0,
+          thesis: 1.0,
+          committee_report: 0.95,
+          law_commission_report: 0.95,
+          white_paper: 0.95,
+          government_report: 0.95,
+          blog_post: 0.85,
+          news_article: 0.85,
+          website: 0.8,
+          other: 0.75,
+        }
+        const typeMultiplier = sourceTypePriority[sourceType] || 0.75
+        
+        // Length bonus (prefer substantial chunks, but not too long)
+        const lengthScore = Math.min(1.0, Math.max(0.7, text.length / 500))
+        
+        // Keyword matching bonus (simple term frequency)
+        const queryTerms = query_text.toLowerCase().split(/\W+/).filter(t => t.length > 3)
+        const textLower = text.toLowerCase()
+        const keywordMatches = queryTerms.filter(term => textLower.includes(term)).length
+        const keywordBonus = Math.min(0.15, (keywordMatches / Math.max(1, queryTerms.length)) * 0.15)
+        
+        // Position bonus (prefer chunks from earlier pages - often more important)
+        const pageBonus = Math.max(0.9, 1.0 - (c.page_number || 0) / 100)
+        
+        // Combined score
+        const finalScore = 
+          similarityScore * typeMultiplier * lengthScore * pageBonus + keywordBonus
+        
+        return {
+          ...c,
+          content: text,
+          source_type: sourceType,
+          score: finalScore,
+          similarity: similarityScore,
+          keyword_matches: keywordMatches,
+        }
+      })
+
+      // Sort by score
+      scoredChunks.sort((a: any, b: any) => b.score - a.score)
+
+      log(runId, "CHUNK_SCORING", {
+        top_scores: scoredChunks.slice(0, 10).map((c: any) => ({
+          score: c.score.toFixed(3),
+          similarity: c.similarity?.toFixed(3),
+          source_type: c.source_type,
+          keyword_matches: c.keyword_matches,
+        })),
+      })
+
+      // Select chunks with STRONG diversity enforcement
       let usedChars = 0
       const boundedChunks: any[] = []
-      const chunksBySource = new Map<string, any[]>()
-
-      for (const c of rawChunks ?? []) {
-        if (!chunksBySource.has(c.source_id)) {
-          chunksBySource.set(c.source_id, [])
+      const sourceChunkCounts = new Map<string, number>() // Track chunks per source
+      const selectedSourceIds = new Set<string>()
+      const selectedSourceTypes = new Set<string>()
+      
+      // Group chunks by source for balanced selection
+      const chunksBySource = new Map<string, typeof scoredChunks>()
+      for (const chunk of scoredChunks) {
+        if (!chunksBySource.has(chunk.source_id)) {
+          chunksBySource.set(chunk.source_id, [])
         }
-        chunksBySource.get(c.source_id)!.push(c)
+        chunksBySource.get(chunk.source_id)!.push(chunk)
       }
 
-      for (const chunks of chunksBySource.values()) {
-        const c = chunks[0]
-        const text = c.text ?? ""
-        if (usedChars + text.length > MAX_EVIDENCE_CHARS) break
-        boundedChunks.push({ ...c, content: text })
-        usedChars += text.length
+      // Calculate max chunks per source with aggressive diversity enforcement
+      const totalSources = chunksBySource.size
+      // Target: use at least 50% of sources, minimum 3, maximum 8
+      const targetSources = Math.min(totalSources, Math.max(3, Math.min(8, Math.floor(totalSources * 0.5))))
+      // Estimate average chunk size (500 chars) to calculate fair allocation
+      const avgChunkSize = 500
+      const estimatedChunks = Math.floor(MAX_EVIDENCE_CHARS / avgChunkSize)
+      // Fair allocation: divide chunks roughly equally among target sources
+      const maxChunksPerSource = Math.max(2, Math.floor(estimatedChunks / targetSources))
+      // Hard limit: no single source should get more than 30% of total chunks
+      const hardMaxPerSource = Math.max(maxChunksPerSource, Math.ceil(estimatedChunks * 0.3))
+
+      log(runId, "DIVERSITY_CONFIG", {
+        total_sources: totalSources,
+        target_sources: targetSources,
+        estimated_total_chunks: estimatedChunks,
+        max_chunks_per_source: maxChunksPerSource,
+        hard_max_per_source: hardMaxPerSource,
+      })
+
+      // First pass: ensure at least one chunk from each source type (for type diversity)
+      const chunksBySourceType = new Map<string, typeof scoredChunks>()
+      for (const chunk of scoredChunks) {
+        const type = chunk.source_type
+        if (!chunksBySourceType.has(type)) {
+          chunksBySourceType.set(type, [])
+        }
+        chunksBySourceType.get(type)!.push(chunk)
       }
 
-      outer: for (const chunks of chunksBySource.values()) {
-        for (let i = 1; i < chunks.length; i++) {
-          const c = chunks[i]
-          const text = c.text ?? ""
-          if (usedChars + text.length > MAX_EVIDENCE_CHARS) break outer
-          boundedChunks.push({ ...c, content: text })
+      // Add best chunk from each source type
+      for (const [sourceType, chunks] of chunksBySourceType.entries()) {
+        if (chunks.length > 0) {
+          const bestChunk = chunks[0]
+          const text = bestChunk.content
+          const sourceId = bestChunk.source_id
+          const currentCount = sourceChunkCounts.get(sourceId) || 0
+          
+          if (usedChars + text.length <= MAX_EVIDENCE_CHARS && currentCount < hardMaxPerSource) {
+            boundedChunks.push(bestChunk)
+            usedChars += text.length
+            sourceChunkCounts.set(sourceId, currentCount + 1)
+            selectedSourceIds.add(sourceId)
+            selectedSourceTypes.add(sourceType)
+          }
+        }
+      }
+
+      // Second pass: quota-based balanced selection
+      // Create a quota for each source (fair share)
+      const sourceQuotas = new Map<string, number>()
+      const sourceChunkLists = Array.from(chunksBySource.entries())
+      
+      // Prioritize sources that haven't been selected yet, then by quality
+      const unselectedSources = sourceChunkLists.filter(([id]) => !selectedSourceIds.has(id))
+      const selectedSources = sourceChunkLists.filter(([id]) => selectedSourceIds.has(id))
+      
+      // Sort unselected sources by best chunk score
+      unselectedSources.sort((a, b) => (b[1][0]?.score || 0) - (a[1][0]?.score || 0))
+      // Sort selected sources by best chunk score (for filling remaining quota)
+      selectedSources.sort((a, b) => (b[1][0]?.score || 0) - (a[1][0]?.score || 0))
+      
+      // Allocate quotas: prioritize unselected sources first
+      const sourcesToAllocate = [...unselectedSources.slice(0, targetSources), ...selectedSources]
+      const sourcesForQuota = sourcesToAllocate.slice(0, targetSources)
+      
+      for (const [sourceId] of sourcesForQuota) {
+        sourceQuotas.set(sourceId, maxChunksPerSource)
+      }
+
+      // Round-robin selection: take chunks from sources in rotation until quotas filled
+      let sourceIndex = 0
+      const maxIterations = estimatedChunks * 3 // Safety limit
+      let iterations = 0
+
+      while (usedChars < MAX_EVIDENCE_CHARS && iterations < maxIterations) {
+        iterations++
+        let addedAny = false
+
+        // Try each source with a quota in rotation
+        const sourcesWithQuota = Array.from(sourceQuotas.entries())
+        if (sourcesWithQuota.length === 0) break
+
+        for (let i = 0; i < sourcesWithQuota.length; i++) {
+          const sourceIdx = (sourceIndex + i) % sourcesWithQuota.length
+          const [sourceId, quota] = sourcesWithQuota[sourceIdx]
+          const sourceChunks = chunksBySource.get(sourceId) || []
+          const currentCount = sourceChunkCounts.get(sourceId) || 0
+          
+          // Skip if quota filled or hard limit reached
+          if (currentCount >= quota || currentCount >= hardMaxPerSource) continue
+
+          // Find best unselected chunk from this source that fits
+          for (const chunk of sourceChunks) {
+            if (usedChars >= MAX_EVIDENCE_CHARS) break
+            if (currentCount >= quota || currentCount >= hardMaxPerSource) break
+            
+            // Skip if already selected
+            if (boundedChunks.some(c => c.id === chunk.id)) continue
+            
+            const text = chunk.content
+            if (usedChars + text.length > MAX_EVIDENCE_CHARS) continue
+
+            // Add chunk (no score filtering here - we're enforcing diversity via quotas)
+            boundedChunks.push(chunk)
+            usedChars += text.length
+            sourceChunkCounts.set(sourceId, currentCount + 1)
+            selectedSourceIds.add(sourceId)
+            addedAny = true
+            break // Move to next source
+          }
+        }
+
+        sourceIndex = (sourceIndex + 1) % sourcesWithQuota.length
+
+        // If we didn't add anything, break to avoid infinite loop
+        if (!addedAny) break
+      }
+
+      // Third pass: if we have space left and quotas are filled, fill with best remaining chunks
+      // but still respect hard limits per source
+      if (usedChars < MAX_EVIDENCE_CHARS * 0.9) { // Only if we used less than 90% of capacity
+        const remainingChunks = scoredChunks.filter(
+          (c: any) => !boundedChunks.some((bc: any) => bc.id === c.id) && 
+               (usedChars + (c.content?.length || 0) <= MAX_EVIDENCE_CHARS) &&
+               ((sourceChunkCounts.get(c.source_id) || 0) < hardMaxPerSource)
+        )
+        
+        // Sort remaining by score and add until capacity
+        remainingChunks.sort((a: any, b: any) => b.score - a.score)
+        for (const chunk of remainingChunks) {
+          if (usedChars >= MAX_EVIDENCE_CHARS) break
+          
+          const sourceId = chunk.source_id
+          const currentCount = sourceChunkCounts.get(sourceId) || 0
+          if (currentCount >= hardMaxPerSource) continue
+          
+          const text = chunk.content
+          if (usedChars + text.length > MAX_EVIDENCE_CHARS) continue
+          
+          boundedChunks.push(chunk)
           usedChars += text.length
+          sourceChunkCounts.set(sourceId, currentCount + 1)
         }
+      }
+
+      // Log final distribution
+      const sourceDistribution: Record<string, number> = {}
+      for (const [sourceId, count] of sourceChunkCounts.entries()) {
+        const sourceType = sourceIdToType.get(sourceId) || "unknown"
+        sourceDistribution[sourceType] = (sourceDistribution[sourceType] || 0) + count
       }
 
       if (!boundedChunks.length) {
@@ -303,11 +578,32 @@ export async function POST(req: Request) {
         )
       }
 
-      /* ================= PROMPT + GENERATION ================= */
+      log(runId, "CHUNK_SELECTION_COMPLETE", {
+        total_chunks: boundedChunks.length,
+        sources_represented: selectedSourceIds.size,
+        chars_used: usedChars,
+        chars_capacity: MAX_EVIDENCE_CHARS,
+        utilization_percent: ((usedChars / MAX_EVIDENCE_CHARS) * 100).toFixed(1),
+        chunks_per_source: Object.fromEntries(sourceChunkCounts),
+        source_type_distribution: sourceDistribution,
+      })
+
+      /* ================= CONTEXT-AWARE PROMPT GENERATION ================= */
 
       const prompt = buildReasoningPrompt({
         query_text,
-        chunks: boundedChunks,
+        chunks: boundedChunks.map(c => ({
+          id: c.id,
+          source_id: c.source_id,
+          page_number: c.page_number,
+          paragraph_index: c.paragraph_index,
+          chunk_index: c.chunk_index,
+          content: c.content,
+        })),
+        project_type: projectType,
+        approach: approach || undefined,
+        source_types: sourceTypeDistribution,
+        source_details: sources?.map(s => ({ id: s.id, type: s.type, title: s.title })) || [],
       })
 
       const genRes = await sendWithRetry(
