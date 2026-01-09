@@ -1522,7 +1522,7 @@ export async function POST(req: NextRequest) {
       log(runId, "PROJECT_PDF_PROCESSED", {
         total_chunks: projectChunks.length,
         total_footnotes: allFootnotes.size,
-        chunks_with_citations: projectChunks.filter(c => c.citations && c.citations.length > 0).length,
+        chunks_with_claims: projectChunks.filter(c => c.claims_with_footnotes && c.claims_with_footnotes.length > 0).length,
       })
     } else if (projectText) {
       // Process text project
