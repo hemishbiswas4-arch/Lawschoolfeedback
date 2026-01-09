@@ -35,6 +35,7 @@ export default function GenerateProjectPage() {
   const searchParams = useSearchParams()
   const queryText = searchParams.get("query")
   const approachParam = searchParams.get("approach")
+  const wordLimitParam = searchParams.get("word_limit")
 
   const hasRequestedRef = useRef(false)
 
@@ -68,15 +69,25 @@ export default function GenerateProjectPage() {
 
     const generate = async () => {
       try {
+        const requestBody: any = {
+          project_id: projectId,
+          query_text: queryText,
+          mode: "generate",
+          approach: selectedApproach,
+        }
+
+        // Add word_limit if provided via URL param
+        if (wordLimitParam) {
+          const limit = parseInt(wordLimitParam, 10)
+          if (!isNaN(limit) && limit > 0 && limit <= 5000) {
+            requestBody.word_limit = limit
+          }
+        }
+
         const res = await fetch("/api/reasoning/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            project_id: projectId,
-            query_text: queryText,
-            mode: "generate",
-            approach: selectedApproach,
-          }),
+          body: JSON.stringify(requestBody),
         })
 
         if (!res.ok) {

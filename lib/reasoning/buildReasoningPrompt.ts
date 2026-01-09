@@ -51,6 +51,7 @@ type BuildReasoningPromptInput = {
   approach?: Approach
   source_types?: Record<string, number>
   source_details?: SourceDetail[]
+  word_limit?: number
 }
 
 export function buildReasoningPrompt({
@@ -60,6 +61,7 @@ export function buildReasoningPrompt({
   approach,
   source_types = {},
   source_details = [],
+  word_limit,
 }: BuildReasoningPromptInput): string {
   if (!chunks || chunks.length === 0) {
     throw new Error("No evidence chunks provided")
@@ -177,6 +179,46 @@ export function buildReasoningPrompt({
 
   const projectTypeContext = projectTypeDescriptions[project_type] || projectTypeDescriptions.research_paper
 
+  /* ---------- Word limit calculation ---------- */
+  
+  // Default limits: 90-130 words per paragraph, minimum 6 sections × 3 paragraphs
+  const DEFAULT_MIN_WORDS_PER_PARAGRAPH = 90
+  const DEFAULT_MAX_WORDS_PER_PARAGRAPH = 130
+  const DEFAULT_MIN_SECTIONS = 6
+  const DEFAULT_MIN_PARAGRAPHS_PER_SECTION = 3
+  const DEFAULT_MAX_TOTAL_WORDS = DEFAULT_MIN_SECTIONS * DEFAULT_MIN_PARAGRAPHS_PER_SECTION * DEFAULT_MAX_WORDS_PER_PARAGRAPH // ~2,340 words
+  
+  // Cap word_limit at 5000 as requested
+  const MAX_ALLOWED_WORDS = 5000
+  const effectiveWordLimit = word_limit 
+    ? Math.min(word_limit, MAX_ALLOWED_WORDS)
+    : undefined
+  
+  // Calculate dynamic structure requirements if word_limit is provided
+  let minSections = DEFAULT_MIN_SECTIONS
+  let minParagraphsPerSection = DEFAULT_MIN_PARAGRAPHS_PER_SECTION
+  let minWordsPerParagraph = DEFAULT_MIN_WORDS_PER_PARAGRAPH
+  let maxWordsPerParagraph = DEFAULT_MAX_WORDS_PER_PARAGRAPH
+  let targetTotalWords = DEFAULT_MAX_TOTAL_WORDS
+  
+  if (effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS) {
+    // Calculate structure to accommodate the word limit
+    // Use average of 110 words per paragraph for calculation
+    const avgWordsPerParagraph = 110
+    const totalParagraphsNeeded = Math.ceil(effectiveWordLimit / avgWordsPerParagraph)
+    
+    // Distribute paragraphs across sections (aim for 3-5 paragraphs per section)
+    const idealParagraphsPerSection = 4
+    minSections = Math.max(DEFAULT_MIN_SECTIONS, Math.ceil(totalParagraphsNeeded / idealParagraphsPerSection))
+    minParagraphsPerSection = Math.max(DEFAULT_MIN_PARAGRAPHS_PER_SECTION, Math.floor(totalParagraphsNeeded / minSections))
+    
+    // Adjust word range slightly to accommodate larger outputs
+    // Keep paragraph length reasonable but allow more flexibility
+    minWordsPerParagraph = 85
+    maxWordsPerParagraph = 150
+    targetTotalWords = effectiveWordLimit
+  }
+
   /* ---------- Approach context ---------- */
 
   let approachContext = ""
@@ -269,25 +311,35 @@ You MAY:
 ---------------------------------------------
 STRUCTURAL LENGTH REQUIREMENTS (MANDATORY)
 ---------------------------------------------
-${approach?.argumentation_line?.structure?.sections
+${effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS
+  ? `- TARGET WORD COUNT: Your output should aim for approximately ${targetTotalWords.toLocaleString()} words total.
+- You MUST produce AT LEAST ${minSections} sections.
+- Each section MUST contain AT LEAST ${minParagraphsPerSection} paragraphs.
+- Each paragraph MUST be between ${minWordsPerParagraph} and ${maxWordsPerParagraph} words.
+- The query requires comprehensive analysis, so ensure you fully develop your arguments across all sections.
+`
+  : approach?.argumentation_line?.structure?.sections
   ? `- You MUST follow the proposed structure with ${approach.argumentation_line.structure.sections.length} sections as outlined above.
-- Each section MUST contain AT LEAST 3 paragraphs.
-- Each paragraph MUST be between 90 and 130 words.
+- Each section MUST contain AT LEAST ${minParagraphsPerSection} paragraphs.
+- Each paragraph MUST be between ${minWordsPerParagraph} and ${maxWordsPerParagraph} words.
 - Section titles should align with the proposed structure, but you may refine them based on evidence.
 `
   : approach?.sections
   ? `- You MUST follow the custom structure with ${approach.sections.length} sections as outlined above.
-- Each section MUST contain AT LEAST 3 paragraphs.
-- Each paragraph MUST be between 90 and 130 words.
+- Each section MUST contain AT LEAST ${minParagraphsPerSection} paragraphs.
+- Each paragraph MUST be between ${minWordsPerParagraph} and ${maxWordsPerParagraph} words.
 - Section titles should align with the proposed structure, but you may refine them based on evidence.
 `
-  : `- You MUST produce AT LEAST 6 sections.
-- Each section MUST contain AT LEAST 3 paragraphs.
-- Each paragraph MUST be between 90 and 130 words.
+  : `- You MUST produce AT LEAST ${minSections} sections.
+- Each section MUST contain AT LEAST ${minParagraphsPerSection} paragraphs.
+- Each paragraph MUST be between ${minWordsPerParagraph} and ${maxWordsPerParagraph} words.
 `}
 - Do NOT collapse ideas to reduce paragraph count.
 - Analytical depth must come from argumentative reasoning grounded in the evidence.
 - You MAY cite multiple evidence IDs in a single paragraph.
+${effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS
+  ? `- IMPORTANT: Given the extended word limit, ensure thorough analysis and comprehensive coverage of the evidence.`
+  : ""}
 
 Failure to meet these structural requirements is a violation.
 

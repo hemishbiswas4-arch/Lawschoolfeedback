@@ -45,6 +45,7 @@ type ReasoningRunInput = {
   project_id: string
   query_text: string
   mode?: "generate" | "retrieve"
+  word_limit?: number
   approach?: {
     argumentation_line?: {
       id: string
@@ -221,13 +222,25 @@ export async function POST(req: Request) {
 
   try {
     const body = (await req.json()) as ReasoningRunInput
-    const { project_id, query_text, mode = "generate", approach } = body
+    let { project_id, query_text, mode = "generate", word_limit, approach } = body
 
     if (!project_id || !query_text?.trim()) {
       return NextResponse.json(
         { error: "Missing project_id or query_text" },
         { status: 400 }
       )
+    }
+
+    // Detect explicit word count requests in query (e.g., "5000 words", "up to 4000 words")
+    if (!word_limit) {
+      const wordCountMatch = query_text.match(/(?:up to|approximately|about|around|at least|at most|minimum|maximum|max|min)?\s*(\d{1,5})\s*words?/i)
+      if (wordCountMatch) {
+        const requestedWords = parseInt(wordCountMatch[1], 10)
+        if (requestedWords > 0 && requestedWords <= 5000) {
+          word_limit = requestedWords
+          log(runId, "WORD_LIMIT_DETECTED", { detected_limit: word_limit, from_query: true })
+        }
+      }
     }
 
     /* ================= EMBEDDING ================= */
@@ -604,6 +617,7 @@ export async function POST(req: Request) {
         approach: approach || undefined,
         source_types: sourceTypeDistribution,
         source_details: sources?.map(s => ({ id: s.id, type: s.type, title: s.title })) || [],
+        word_limit: word_limit,
       })
 
       const genRes = await sendWithRetry(

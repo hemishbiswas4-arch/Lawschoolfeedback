@@ -81,6 +81,7 @@ export default function SynthesizePage() {
     structure_type: "",
     focus_areas: [],
   })
+  const [wordLimit, setWordLimit] = useState<string>("")
 
   // Ref to prevent duplicate calls
   const synthesisInProgress = useRef(false)
@@ -233,6 +234,14 @@ export default function SynthesizePage() {
         sections: selectedLine?.structure.sections || synthesis?.recommended_structure.sections || [],
       }),
     })
+
+    // Add word_limit if provided
+    if (wordLimit.trim()) {
+      const limit = parseInt(wordLimit.trim(), 10)
+      if (!isNaN(limit) && limit > 0 && limit <= 5000) {
+        params.set("word_limit", limit.toString())
+      }
+    }
 
     router.push(`/projects/${projectId}/generate?${params.toString()}`)
   }
@@ -399,6 +408,44 @@ export default function SynthesizePage() {
               </div>
             )
           })}
+        </div>
+      </div>
+
+      {/* ========== WORD LIMIT ========== */}
+
+      <div style={{ marginBottom: "40px" }}>
+        <h2 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "20px" }}>
+          Output Length
+        </h2>
+        <div style={{ maxWidth: "400px" }}>
+          <label style={{ fontSize: "13px", fontWeight: 600, display: "block", marginBottom: "8px" }}>
+            Target Word Count (Optional)
+          </label>
+          <input
+            type="number"
+            value={wordLimit}
+            onChange={(e) => {
+              const value = e.target.value
+              // Allow empty or valid numbers up to 5000
+              if (value === "" || (parseInt(value, 10) > 0 && parseInt(value, 10) <= 5000)) {
+                setWordLimit(value)
+              }
+            }}
+            placeholder="e.g., 5000"
+            min="1"
+            max="5000"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              borderRadius: "6px",
+              border: "1px solid #d1d5db",
+              fontSize: "13px",
+            }}
+          />
+          <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "4px" }}>
+            Leave empty for default length (~2,340 words). Maximum: 5,000 words. 
+            You can also specify this in your query text (e.g., "generate a 5000 word analysis").
+          </div>
         </div>
       </div>
 
