@@ -107,7 +107,8 @@ export default function GenerateProjectPage() {
         
         // Fetch source titles for all source IDs in evidence index
         const sourceIds = new Set<string>()
-        for (const meta of Object.values(json.evidence_index)) {
+        const evidenceIndex = json.evidence_index as Record<string, EvidenceMeta>
+        for (const meta of Object.values(evidenceIndex)) {
           sourceIds.add(meta.source_id)
         }
         
