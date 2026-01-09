@@ -336,7 +336,7 @@ IMPORTANT:
       /* ================= CALL MODEL ================= */
 
       console.log(`SYNTHESIZE [${runId}] Calling Bedrock model...`)
-      const res = await sendWithRetry(
+      const res: any = await sendWithRetry(
         new InvokeModelCommand({
           modelId: GENERATION_INFERENCE_PROFILE_ARN,
           contentType: "application/json",
@@ -353,7 +353,11 @@ IMPORTANT:
         runId
       )
 
-      const responseText = Buffer.from(res.body!).toString("utf-8")
+      if (!res.body) {
+        throw new Error("Empty response body from Bedrock")
+      }
+
+      const responseText = Buffer.from(res.body).toString("utf-8")
       let parsed: any
       try {
         parsed = JSON.parse(responseText)
