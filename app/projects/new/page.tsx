@@ -7,6 +7,12 @@ import { supabase } from "@/lib/supabaseClient"
 import { useRouter } from "next/navigation"
 
 /* ================= PROJECT TYPE CONFIG ================= */
+/* 
+ * NOTE: If you add new project types here, you MUST also update the database constraint
+ * by running scripts/update_project_type_constraint.sql in your Supabase database.
+ * 
+ * The constraint projects_project_type_check must include all values defined here.
+ */
 
 const PROJECT_TYPES = [
   // Academic Research
@@ -80,6 +86,14 @@ export default function NewProjectPage() {
         return
       }
 
+      // Validate project type exists in our config
+      const validProjectType = PROJECT_TYPES.find(t => t.value === projectType)
+      if (!validProjectType) {
+        setError(`Invalid project type selected. Please refresh the page and try again.`)
+        setLoading(false)
+        return
+      }
+
       console.log("Creating project with:", {
         owner_id: user.id,
         title: title.trim(),
@@ -98,11 +112,23 @@ export default function NewProjectPage() {
 
       if (error) {
         console.error("Project creation error:", error)
-        // Show more detailed error message
-        const errorMessage = error.message || error.code || "Failed to create project"
-        const errorDetails = error.details ? ` (${error.details})` : ""
-        const errorHint = error.hint ? ` Hint: ${error.hint}` : ""
-        setError(`Failed to create project: ${errorMessage}${errorDetails}${errorHint}`)
+        
+        // Check if it's a constraint violation for project_type
+        if (error.code === "23514" || error.message?.includes("projects_project_type_check")) {
+          const projectTypeLabel = PROJECT_TYPES.find(t => t.value === projectType)?.label || projectType
+          setError(
+            `The project type "${projectTypeLabel}" (${projectType}) is not currently supported by the database constraint. ` +
+            `This happens when the database hasn't been updated with the latest project types. ` +
+            `Please run the migration script: scripts/update_project_type_constraint.sql in your Supabase database, ` +
+            `or select a different project type for now.`
+          )
+        } else {
+          // Show more detailed error message for other errors
+          const errorMessage = error.message || error.code || "Failed to create project"
+          const errorDetails = error.details ? ` (${error.details})` : ""
+          const errorHint = error.hint ? ` Hint: ${error.hint}` : ""
+          setError(`Failed to create project: ${errorMessage}${errorDetails}${errorHint}`)
+        }
         setLoading(false)
         return
       }
