@@ -354,22 +354,26 @@ export async function POST(req: Request) {
         // Base similarity score (from vector search)
         const similarityScore = c.similarity || 0
         
-        // Source type priority
+        // Source type priority - PRIMARY LAW SOURCES get highest priority
         const sourceTypePriority: Record<string, number> = {
-          case: 1.2,
-          statute: 1.2,
-          regulation: 1.15,
-          constitution: 1.2,
-          treaty: 1.15,
+          // Primary Law Sources (Highest Priority - Critical for legal arguments)
+          case: 1.3,
+          statute: 1.4,  // Increased - statutes are essential for black-letter law
+          regulation: 1.3,  // Increased - regulations are binding legal rules
+          constitution: 1.35,
+          treaty: 1.35,  // Increased - treaties/conventions are binding international law
+          // Academic / Secondary Sources
           journal_article: 1.1,
           book: 1.05,
           commentary: 1.05,
           working_paper: 1.0,
           thesis: 1.0,
+          // Policy / Institutional Sources
           committee_report: 0.95,
           law_commission_report: 0.95,
           white_paper: 0.95,
           government_report: 0.95,
+          // Digital / Informal Sources
           blog_post: 0.85,
           news_article: 0.85,
           website: 0.8,
@@ -441,6 +445,8 @@ export async function POST(req: Request) {
       // Fair allocation: divide chunks roughly equally among target sources
       const maxChunksPerSource = Math.max(2, Math.floor(estimatedChunks / targetSources))
       // Hard limit: no single source should get more than 30% of total chunks
+      // BUT: Primary law sources (statutes, treaties, regulations) can get up to 40% since they're critical
+      const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution', 'case'])
       const hardMaxPerSource = Math.max(maxChunksPerSource, Math.ceil(estimatedChunks * 0.3))
 
       log(runId, "DIVERSITY_CONFIG", {
@@ -451,7 +457,8 @@ export async function POST(req: Request) {
         hard_max_per_source: hardMaxPerSource,
       })
 
-      // First pass: ensure at least one chunk from each source type (for type diversity)
+      // First pass: PRIORITIZE PRIMARY LAW SOURCES - ensure strong representation
+      const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution', 'case'])
       const chunksBySourceType = new Map<string, typeof scoredChunks>()
       for (const chunk of scoredChunks) {
         const type = chunk.source_type
@@ -461,15 +468,42 @@ export async function POST(req: Request) {
         chunksBySourceType.get(type)!.push(chunk)
       }
 
-      // Add best chunk from each source type
+      // PRIORITY 1: Add multiple chunks from primary law sources (statutes, treaties, regulations, constitution, cases)
+      // These are critical for legal arguments and must be well-represented
       for (const [sourceType, chunks] of chunksBySourceType.entries()) {
-        if (chunks.length > 0) {
+        if (primaryLawTypes.has(sourceType) && chunks.length > 0) {
+          // For primary law sources, try to include at least 2-3 chunks if available
+          const targetChunks = Math.min(3, chunks.length)
+          for (let i = 0; i < targetChunks; i++) {
+            const chunk = chunks[i]
+            const text = chunk.content
+            const sourceId = chunk.source_id
+            const currentCount = sourceChunkCounts.get(sourceId) || 0
+            
+            if (usedChars + text.length <= MAX_EVIDENCE_CHARS && 
+                currentCount < hardMaxPerSource &&
+                !boundedChunks.some(c => c.id === chunk.id)) {
+              boundedChunks.push(chunk)
+              usedChars += text.length
+              sourceChunkCounts.set(sourceId, currentCount + 1)
+              selectedSourceIds.add(sourceId)
+              selectedSourceTypes.add(sourceType)
+            }
+          }
+        }
+      }
+
+      // PRIORITY 2: Add at least one chunk from each remaining source type (for diversity)
+      for (const [sourceType, chunks] of chunksBySourceType.entries()) {
+        if (!primaryLawTypes.has(sourceType) && chunks.length > 0) {
           const bestChunk = chunks[0]
           const text = bestChunk.content
           const sourceId = bestChunk.source_id
           const currentCount = sourceChunkCounts.get(sourceId) || 0
           
-          if (usedChars + text.length <= MAX_EVIDENCE_CHARS && currentCount < hardMaxPerSource) {
+          if (usedChars + text.length <= MAX_EVIDENCE_CHARS && 
+              currentCount < hardMaxPerSource &&
+              !boundedChunks.some(c => c.id === bestChunk.id)) {
             boundedChunks.push(bestChunk)
             usedChars += text.length
             sourceChunkCounts.set(sourceId, currentCount + 1)
@@ -589,6 +623,163 @@ export async function POST(req: Request) {
           { error: "No usable evidence after balancing" },
           { status: 500 }
         )
+      }
+
+      /* ================= EXPAND PRIMARY LAW CHUNKS WITH ADJACENT CONTEXT ================= */
+      // For statutes, treaties, regulations, and conventions, include adjacent chunks
+      // to preserve complete legal provisions and avoid mid-provision cuts
+      
+      const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution'])
+      const expandedChunks: typeof boundedChunks = []
+      const expandedChunkIds = new Set<string>()
+      const chunksToExpand = new Set<string>() // Track which chunks need expansion
+      
+      // Identify primary law chunks that need expansion
+      for (const chunk of boundedChunks) {
+        const sourceType = sourceIdToType.get(chunk.source_id) || "unknown"
+        if (primaryLawTypes.has(sourceType)) {
+          chunksToExpand.add(chunk.id)
+        }
+      }
+      
+      if (chunksToExpand.size > 0) {
+        // Group chunks by source for efficient expansion
+        const chunksBySourceForExpansion = new Map<string, typeof boundedChunks>()
+        for (const chunk of boundedChunks) {
+          if (!chunksBySourceForExpansion.has(chunk.source_id)) {
+            chunksBySourceForExpansion.set(chunk.source_id, [])
+          }
+          chunksBySourceForExpansion.get(chunk.source_id)!.push(chunk)
+        }
+        
+        // For each source with primary law chunks, fetch all chunks to find adjacent ones
+        for (const [sourceId, selectedChunks] of chunksBySourceForExpansion.entries()) {
+          const sourceType = sourceIdToType.get(sourceId) || "unknown"
+          if (!primaryLawTypes.has(sourceType)) {
+            // Not a primary law source, add chunks as-is
+            for (const chunk of selectedChunks) {
+              if (!expandedChunkIds.has(chunk.id)) {
+                expandedChunks.push(chunk)
+                expandedChunkIds.add(chunk.id)
+              }
+            }
+            continue
+          }
+          
+          // Fetch all chunks from this source, ordered by chunk_index
+          const { data: allSourceChunks } = await supabase
+            .from("source_chunks")
+            .select("id, text, chunk_index, page_number, paragraph_index")
+            .eq("source_id", sourceId)
+            .order("chunk_index", { ascending: true })
+          
+          if (!allSourceChunks || allSourceChunks.length === 0) {
+            // Fallback: add selected chunks as-is
+            for (const chunk of selectedChunks) {
+              if (!expandedChunkIds.has(chunk.id)) {
+                expandedChunks.push(chunk)
+                expandedChunkIds.add(chunk.id)
+              }
+            }
+            continue
+          }
+          
+          // Create a map of chunk_index to chunk for quick lookup
+          const chunkIndexMap = new Map<number, any>()
+          const chunkIdToIndex = new Map<string, number>()
+          for (const c of allSourceChunks) {
+            chunkIndexMap.set(c.chunk_index, c)
+            chunkIdToIndex.set(c.id, c.chunk_index)
+          }
+          
+          // For each selected chunk, include adjacent chunks (1 before, 1 after)
+          const ADJACENT_RANGE = 1 // Include 1 chunk before and 1 after
+          for (const selectedChunk of selectedChunks) {
+            // Always include the selected chunk itself
+            if (!expandedChunkIds.has(selectedChunk.id)) {
+              expandedChunks.push(selectedChunk)
+              expandedChunkIds.add(selectedChunk.id)
+            }
+            
+            const selectedChunkIndex = chunkIdToIndex.get(selectedChunk.id)
+            if (selectedChunkIndex === undefined) {
+              // Chunk not found in source, skip expansion
+              continue
+            }
+            
+            // Collect adjacent chunks (before and after)
+            const startIndex = Math.max(0, selectedChunkIndex - ADJACENT_RANGE)
+            const endIndex = Math.min(allSourceChunks.length - 1, selectedChunkIndex + ADJACENT_RANGE)
+            
+            for (let idx = startIndex; idx <= endIndex; idx++) {
+              // Skip the selected chunk itself (already added)
+              if (idx === selectedChunkIndex) continue
+              
+              const adjacentChunk = chunkIndexMap.get(idx)
+              if (adjacentChunk && !expandedChunkIds.has(adjacentChunk.id)) {
+                // Check if we have space for this chunk
+                const adjacentText = adjacentChunk.text || ""
+                const additionalChars = adjacentText.length
+                
+                // Allow some overflow for context (up to 10% over limit)
+                if (usedChars + additionalChars <= MAX_EVIDENCE_CHARS * 1.1) {
+                  // Find the original chunk data from scoredChunks or rawChunks
+                  const originalChunk = scoredChunks.find((c: any) => c.id === adjacentChunk.id) || 
+                                       rawChunks?.find((c: any) => c.id === adjacentChunk.id)
+                  
+                  if (originalChunk) {
+                    // Use the original chunk with all its metadata (score, similarity, etc.)
+                    expandedChunks.push({
+                      ...originalChunk,
+                      is_expanded_context: true, // Mark as expanded context
+                    })
+                  } else {
+                    // Fallback: create chunk from database data
+                    // Use average similarity/score from selected chunks as fallback
+                    const avgSimilarity = selectedChunks.reduce((sum, c) => sum + (c.similarity || 0), 0) / selectedChunks.length
+                    const avgScore = selectedChunks.reduce((sum, c) => sum + (c.score || 0), 0) / selectedChunks.length
+                    
+                    expandedChunks.push({
+                      id: adjacentChunk.id,
+                      source_id: sourceId,
+                      content: adjacentText,
+                      text: adjacentText,
+                      page_number: adjacentChunk.page_number,
+                      paragraph_index: adjacentChunk.paragraph_index,
+                      chunk_index: adjacentChunk.chunk_index,
+                      source_type: sourceType,
+                      similarity: avgSimilarity,
+                      score: avgScore,
+                      is_expanded_context: true,
+                    })
+                  }
+                  expandedChunkIds.add(adjacentChunk.id)
+                  usedChars += additionalChars
+                }
+              }
+            }
+          }
+        }
+        
+        // Add any non-primary-law chunks that weren't expanded
+        for (const chunk of boundedChunks) {
+          const sourceType = sourceIdToType.get(chunk.source_id) || "unknown"
+          if (!primaryLawTypes.has(sourceType) && !expandedChunkIds.has(chunk.id)) {
+            expandedChunks.push(chunk)
+            expandedChunkIds.add(chunk.id)
+          }
+        }
+        
+        log(runId, "CHUNK_EXPANSION_COMPLETE", {
+          original_chunks: boundedChunks.length,
+          expanded_chunks: expandedChunks.length,
+          expansion_count: expandedChunks.length - boundedChunks.length,
+          primary_law_sources_expanded: Array.from(chunksToExpand).length,
+        })
+        
+        // Replace boundedChunks with expanded chunks
+        boundedChunks.length = 0
+        boundedChunks.push(...expandedChunks)
       }
 
       log(runId, "CHUNK_SELECTION_COMPLETE", {

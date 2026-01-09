@@ -109,14 +109,38 @@ export function buildReasoningPrompt({
     sourceIdToType.set(source.id, source.type)
   }
 
+  // Group chunks by source to identify adjacent chunks from statutes/conventions
+  const chunksBySource = new Map<string, typeof chunks>()
+  for (const chunk of chunks) {
+    if (!chunksBySource.has(chunk.source_id)) {
+      chunksBySource.set(chunk.source_id, [])
+    }
+    chunksBySource.get(chunk.source_id)!.push(chunk)
+  }
+  
+  // Sort chunks within each source by chunk_index to identify adjacent chunks
+  for (const [sourceId, sourceChunks] of chunksBySource.entries()) {
+    sourceChunks.sort((a, b) => (a.chunk_index || 0) - (b.chunk_index || 0))
+  }
+  
   const evidenceSection = chunks
     .map(chunk => {
       const sourceType = sourceIdToType.get(chunk.source_id) || "unknown"
       const sourceTypeLabel = sourceTypeLabels[sourceType] || sourceType
+      const sourceChunks = chunksBySource.get(chunk.source_id) || []
+      const chunkPosition = sourceChunks.findIndex(c => c.id === chunk.id)
+      const isAdjacent = chunkPosition > 0 || chunkPosition < sourceChunks.length - 1
+      const isPrimaryLaw = ['statute', 'treaty', 'regulation', 'constitution'].includes(sourceType)
+      
+      // Add context note for primary law chunks that are part of a sequence
+      const contextNote = isPrimaryLaw && isAdjacent && sourceChunks.length > 1
+        ? `\nNOTE: This chunk is part of a sequence from ${sourceTypeLabel}. Read it together with adjacent chunks from the same source for complete legal context.`
+        : ""
+      
       return [
         `[${chunk.id}]`,
         `Source ID: ${chunk.source_id}`,
-        `Source Type: ${sourceTypeLabel}`,
+        `Source Type: ${sourceTypeLabel}${contextNote}`,
         `Page Number: ${chunk.page_number}`,
         `Paragraph Index: ${chunk.paragraph_index}`,
         `Chunk Index: ${chunk.chunk_index}`,
@@ -348,12 +372,12 @@ SOURCE TYPE AWARENESS (CRITICAL)
 ---------------------------------------------
 You have access to evidence from different source types. Consider the authority and nature of each source:
 
-PRIMARY LAW SOURCES (Highest Authority):
+PRIMARY LAW SOURCES (Highest Authority - MANDATORY TO USE WHEN AVAILABLE):
 - Case Law: Judicial decisions and precedents - cite for legal principles and reasoning
-- Statutes: Legislative enactments - cite for black-letter law
-- Regulations: Administrative rules - cite for regulatory frameworks
+- Statutes: Legislative enactments - cite for black-letter law. STATUTES ARE ESSENTIAL - if statutes are in the evidence, you MUST cite them prominently.
+- Regulations: Administrative rules - cite for regulatory frameworks. REGULATIONS ARE BINDING LAW - cite them when available.
 - Constitution: Constitutional provisions - cite for foundational principles
-- Treaties: International agreements - cite for international law
+- Treaties/Conventions: International agreements - cite for international law. TREATIES/CONVENTIONS ARE BINDING - if present, you MUST cite them when discussing international obligations.
 
 ACADEMIC / SECONDARY SOURCES (Interpretive Authority):
 - Journal Articles: Scholarly analysis and critique - cite for academic perspectives
@@ -368,11 +392,14 @@ POLICY / INSTITUTIONAL SOURCES (Contextual Authority):
 DIGITAL / INFORMAL SOURCES (Lower Authority):
 - Blog Posts, News Articles, Websites: Contemporary commentary - use sparingly, primarily for current events or public discourse
 
-WEIGHTING GUIDANCE:
-- Prioritize primary law sources for legal propositions
-- Use academic sources to support interpretations and theoretical frameworks
-- Reference policy sources for context and reform discussions
-- Balance source types appropriately based on the project type and query
+WEIGHTING GUIDANCE (CRITICAL):
+- MANDATORY: When statutes, treaties, conventions, or regulations are available in the evidence, you MUST cite them prominently. These are binding legal sources and are essential for any legal argument.
+- Statutes and Regulations: These represent black-letter law and binding legal rules. If statutes or regulations are present, they should be cited early and frequently in relevant sections.
+- Treaties and Conventions: These are binding international law. If treaties/conventions are present, they must be cited when discussing international obligations or frameworks.
+- Prioritize primary law sources (statutes, treaties, regulations, constitution, cases) for all legal propositions - they carry the highest authority.
+- Use academic sources to support interpretations and theoretical frameworks, but do not rely on them alone when primary law sources are available.
+- Reference policy sources for context and reform discussions.
+- Balance source types appropriately, but ALWAYS ensure primary law sources are well-represented when available.
 
 ---------------------------------------------
 CHUNK SEMANTICS (CRITICAL)
@@ -384,11 +411,26 @@ Each evidence chunk is:
 - Identified by a unique, opaque identifier (the bracketed ID)
 - Tagged with its source type for appropriate weighting
 
+SPECIAL HANDLING FOR STATUTES, TREATIES, REGULATIONS, AND CONVENTIONS:
+- Chunks from statutes, treaties, regulations, and conventions may be part of a sequence
+- When multiple chunks from the same primary law source are provided, they are ADJACENT chunks
+- These adjacent chunks should be read TOGETHER as they represent continuous legal provisions
+- A chunk may be cut mid-provision, so adjacent chunks provide necessary context
+- When citing a statute/treaty/regulation chunk, consider citing adjacent chunks from the same source if they provide relevant context
+- Legal provisions often reference other sections - adjacent chunks may contain those references
+
 You MAY:
 - Combine multiple chunks to support a single argumentative move
 - Contrast chunks that express different positions or emphases
 - Weight primary law sources more heavily for legal propositions
 - Use academic sources to support analytical frameworks
+- Read adjacent chunks from statutes/treaties/regulations together as a continuous provision
+
+You MUST:
+- Cite statutes, regulations, treaties, and conventions when they appear in the evidence - these are binding legal sources
+- Prioritize primary law sources over secondary sources when making legal claims
+- Ensure statutes and regulations are prominently featured if they are available in the evidence
+- When using a chunk from a statute/treaty/regulation, check if adjacent chunks from the same source provide necessary context
 
 You MAY NOT:
 - Infer facts beyond the explicit wording of a chunk
