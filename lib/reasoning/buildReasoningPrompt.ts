@@ -449,6 +449,38 @@ EVIDENCE (READ-ONLY — FIXED)
 ${evidenceSection}
 
 ---------------------------------------------
+GRANULAR CITATION REQUIREMENTS (CRITICAL)
+---------------------------------------------
+You MUST provide granular citations indicating exactly how evidence is used:
+
+1. For DIRECT QUOTES: When you quote text verbatim from a chunk, you MUST:
+   - Include the exact quoted text in the "direct_quotes" array
+   - Specify the character position range within the chunk where the quote appears
+   - Mark the usage_type as "direct"
+
+2. For SUBSTANTIAL USE: When you paraphrase, summarize, or substantially rely on content from a chunk (even if not quoted), you MUST:
+   - Include the relevant text excerpt or key phrase in "substantial_uses"
+   - Specify the character position range within the chunk
+   - Mark the usage_type as "substantial"
+
+3. For GENERAL REFERENCE: When a chunk informs your argument but isn't directly quoted or substantially used, mark usage_type as "reference"
+
+4. Character positions: Each chunk's content starts at position 0. When citing, provide the start and end character positions (0-indexed) within that chunk's content where the cited text appears.
+
+5. Multiple citations: A single paragraph may cite the same chunk multiple times with different quotes/uses - include each as a separate citation entry.
+
+Example citation structure:
+- If chunk [abc123] contains: "The court held that the statute applies broadly."
+- And you quote "applies broadly" (characters 25-40 in that chunk):
+  {
+    "evidence_id": "abc123",
+    "usage_type": "direct",
+    "char_start": 25,
+    "char_end": 40,
+    "quoted_text": "applies broadly"
+  }
+
+---------------------------------------------
 OUTPUT FORMAT (STRICT — JSON ONLY)
 ---------------------------------------------
 Return ONLY valid JSON in the following exact structure:
@@ -462,12 +494,30 @@ Return ONLY valid JSON in the following exact structure:
         {
           "paragraph_index": 1,
           "text": "formal academic legal prose advancing a clear analytical claim",
-          "evidence_ids": ["<chunk-uuid-1>", "<chunk-uuid-2>"]
+          "evidence_ids": ["<chunk-uuid-1>", "<chunk-uuid-2>"],
+          "citations": [
+            {
+              "evidence_id": "<chunk-uuid-1>",
+              "usage_type": "direct" | "substantial" | "reference",
+              "char_start": 0,
+              "char_end": 50,
+              "quoted_text": "exact quoted text if usage_type is direct, otherwise null",
+              "excerpt": "relevant excerpt or key phrase if usage_type is substantial, otherwise null"
+            }
+          ]
         }
       ]
     }
   ]
 }
+
+IMPORTANT CITATION RULES:
+- Every evidence_id in "evidence_ids" MUST have at least one corresponding entry in "citations"
+- If you directly quote from a chunk, usage_type MUST be "direct" and quoted_text MUST contain the exact quote
+- If you substantially rely on a chunk's content, usage_type MUST be "substantial" and excerpt MUST contain the relevant text
+- If a chunk is only referenced generally, usage_type can be "reference" and quoted_text/excerpt can be null
+- Character positions (char_start, char_end) MUST accurately reflect where the cited text appears within the chunk's content
+- Character positions are 0-indexed (first character is at position 0)
 
 ---------------------------------------------
 PROHIBITIONS (ENFORCED)

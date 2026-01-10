@@ -460,56 +460,73 @@ export async function POST(req: Request) {
       })
 
       // First pass: PRIORITIZE PRIMARY LAW SOURCES - ensure strong representation
-      const chunksBySourceType = new Map<string, typeof scoredChunks>()
-      for (const chunk of scoredChunks) {
-        const type = chunk.source_type
-        if (!chunksBySourceType.has(type)) {
-          chunksBySourceType.set(type, [])
+      // Group sources by type, then select from different sources within each type
+      const sourcesByType = new Map<string, Array<{ sourceId: string; chunks: typeof scoredChunks }>>()
+      
+      for (const [sourceId, sourceChunks] of chunksBySource.entries()) {
+        const sourceType = sourceIdToType.get(sourceId) || "unknown"
+        if (!sourcesByType.has(sourceType)) {
+          sourcesByType.set(sourceType, [])
         }
-        chunksBySourceType.get(type)!.push(chunk)
+        // Sort chunks by score within each source
+        const sortedChunks = [...sourceChunks].sort((a, b) => b.score - a.score)
+        sourcesByType.get(sourceType)!.push({ sourceId, chunks: sortedChunks })
       }
 
-      // PRIORITY 1: Add multiple chunks from primary law sources (statutes, treaties, regulations, constitution, cases)
+      // PRIORITY 1: Add chunks from primary law sources, ensuring diversity across different sources
       // These are critical for legal arguments and must be well-represented
-      for (const [sourceType, chunks] of chunksBySourceType.entries()) {
-        if (primaryLawTypes.has(sourceType) && chunks.length > 0) {
-          // For primary law sources, try to include at least 2-3 chunks if available
-          const targetChunks = Math.min(3, chunks.length)
-          for (let i = 0; i < targetChunks; i++) {
-            const chunk = chunks[i]
-            const text = chunk.content
-            const sourceId = chunk.source_id
+      for (const [sourceType, sources] of sourcesByType.entries()) {
+        if (primaryLawTypes.has(sourceType) && sources.length > 0) {
+          // Sort sources by their best chunk score to prioritize quality sources
+          sources.sort((a, b) => (b.chunks[0]?.score || 0) - (a.chunks[0]?.score || 0))
+          
+          // For each primary law source, add 1-2 chunks (ensuring diversity across sources)
+          for (const { sourceId, chunks } of sources) {
             const currentCount = sourceChunkCounts.get(sourceId) || 0
+            if (currentCount >= hardMaxPerSource) continue
             
-            if (usedChars + text.length <= MAX_EVIDENCE_CHARS && 
-                currentCount < hardMaxPerSource &&
-                !boundedChunks.some(c => c.id === chunk.id)) {
-              boundedChunks.push(chunk)
-              usedChars += text.length
-              sourceChunkCounts.set(sourceId, currentCount + 1)
-              selectedSourceIds.add(sourceId)
-              selectedSourceTypes.add(sourceType)
+            // Add 1-2 best chunks from this source
+            const targetChunks = Math.min(2, chunks.length)
+            for (let i = 0; i < targetChunks; i++) {
+              const chunk = chunks[i]
+              const text = chunk.content
+              
+              if (usedChars + text.length <= MAX_EVIDENCE_CHARS && 
+                  currentCount < hardMaxPerSource &&
+                  !boundedChunks.some(c => c.id === chunk.id)) {
+                boundedChunks.push(chunk)
+                usedChars += text.length
+                sourceChunkCounts.set(sourceId, currentCount + 1)
+                selectedSourceIds.add(sourceId)
+                selectedSourceTypes.add(sourceType)
+              }
             }
           }
         }
       }
 
-      // PRIORITY 2: Add at least one chunk from each remaining source type (for diversity)
-      for (const [sourceType, chunks] of chunksBySourceType.entries()) {
-        if (!primaryLawTypes.has(sourceType) && chunks.length > 0) {
-          const bestChunk = chunks[0]
-          const text = bestChunk.content
-          const sourceId = bestChunk.source_id
-          const currentCount = sourceChunkCounts.get(sourceId) || 0
+      // PRIORITY 2: Add at least one chunk from each remaining source (ensuring source diversity)
+      for (const [sourceType, sources] of sourcesByType.entries()) {
+        if (!primaryLawTypes.has(sourceType) && sources.length > 0) {
+          // Sort sources by their best chunk score
+          sources.sort((a, b) => (b.chunks[0]?.score || 0) - (a.chunks[0]?.score || 0))
           
-          if (usedChars + text.length <= MAX_EVIDENCE_CHARS && 
-              currentCount < hardMaxPerSource &&
-              !boundedChunks.some(c => c.id === bestChunk.id)) {
-            boundedChunks.push(bestChunk)
-            usedChars += text.length
-            sourceChunkCounts.set(sourceId, currentCount + 1)
-            selectedSourceIds.add(sourceId)
-            selectedSourceTypes.add(sourceType)
+          // Add best chunk from each source (one per source for diversity)
+          for (const { sourceId, chunks } of sources) {
+            if (chunks.length === 0) continue
+            const bestChunk = chunks[0]
+            const text = bestChunk.content
+            const currentCount = sourceChunkCounts.get(sourceId) || 0
+            
+            if (usedChars + text.length <= MAX_EVIDENCE_CHARS && 
+                currentCount < hardMaxPerSource &&
+                !boundedChunks.some(c => c.id === bestChunk.id)) {
+              boundedChunks.push(bestChunk)
+              usedChars += text.length
+              sourceChunkCounts.set(sourceId, currentCount + 1)
+              selectedSourceIds.add(sourceId)
+              selectedSourceTypes.add(sourceType)
+            }
           }
         }
       }
@@ -852,6 +869,10 @@ export async function POST(req: Request) {
       /* ================= HARD STRUCTURAL VALIDATION ================= */
 
       const validChunkIds = new Set(boundedChunks.map(c => c.id))
+      const chunkContentMap = new Map<string, string>()
+      for (const c of boundedChunks) {
+        chunkContentMap.set(c.id, c.content)
+      }
 
       for (const section of reasoningOutput.sections ?? []) {
         for (const p of section.paragraphs ?? []) {
@@ -861,6 +882,8 @@ export async function POST(req: Request) {
               { status: 500 }
             )
           }
+          
+          // Validate evidence_ids
           for (const eid of p.evidence_ids) {
             if (!validChunkIds.has(eid)) {
               return NextResponse.json(
@@ -868,6 +891,78 @@ export async function POST(req: Request) {
                 { status: 500 }
               )
             }
+          }
+          
+          // Validate citations if provided
+          if (p.citations && Array.isArray(p.citations)) {
+            const citedEvidenceIds = new Set(p.evidence_ids)
+            
+            for (const citation of p.citations) {
+              // Validate citation structure
+              if (!citation.evidence_id || !validChunkIds.has(citation.evidence_id)) {
+                return NextResponse.json(
+                  { error: "Citation references invalid evidence ID" },
+                  { status: 500 }
+                )
+              }
+              
+              // Validate usage_type
+              if (!['direct', 'substantial', 'reference'].includes(citation.usage_type)) {
+                return NextResponse.json(
+                  { error: "Invalid usage_type in citation" },
+                  { status: 500 }
+                )
+              }
+              
+              // Validate character positions if provided
+              if (citation.char_start !== undefined && citation.char_end !== undefined) {
+                const chunkContent = chunkContentMap.get(citation.evidence_id) || ""
+                if (citation.char_start < 0 || citation.char_end > chunkContent.length || citation.char_start > citation.char_end) {
+                  log(runId, "CITATION_POSITION_WARNING", {
+                    evidence_id: citation.evidence_id,
+                    char_start: citation.char_start,
+                    char_end: citation.char_end,
+                    chunk_length: chunkContent.length,
+                  }, "WARN")
+                  // Don't fail, just log warning - positions might be approximate
+                }
+              }
+              
+              // Validate quoted_text for direct quotes
+              if (citation.usage_type === 'direct' && !citation.quoted_text) {
+                log(runId, "MISSING_QUOTED_TEXT", {
+                  evidence_id: citation.evidence_id,
+                }, "WARN")
+                // Don't fail, but log warning
+              }
+            }
+            
+            // Ensure all evidence_ids have at least one citation (best-effort)
+            for (const eid of p.evidence_ids) {
+              const hasCitation = p.citations.some((c: any) => c.evidence_id === eid)
+              if (!hasCitation) {
+                log(runId, "MISSING_CITATION_FOR_EVIDENCE", {
+                  evidence_id: eid,
+                  paragraph_index: p.paragraph_index,
+                }, "WARN")
+                // Auto-create a reference citation if missing
+                if (!p.citations) p.citations = []
+                p.citations.push({
+                  evidence_id: eid,
+                  usage_type: "reference",
+                  char_start: 0,
+                  char_end: Math.min(100, chunkContentMap.get(eid)?.length || 0),
+                })
+              }
+            }
+          } else {
+            // If citations array is missing, create default citations for all evidence_ids
+            p.citations = p.evidence_ids.map((eid: string) => ({
+              evidence_id: eid,
+              usage_type: "reference" as const,
+              char_start: 0,
+              char_end: Math.min(100, chunkContentMap.get(eid)?.length || 0),
+            }))
           }
         }
       }

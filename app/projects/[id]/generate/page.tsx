@@ -6,10 +6,20 @@ import { supabase } from "@/lib/supabaseClient"
 
 /* ================= TYPES ================= */
 
+type Citation = {
+  evidence_id: string
+  usage_type: "direct" | "substantial" | "reference"
+  char_start?: number
+  char_end?: number
+  quoted_text?: string | null
+  excerpt?: string | null
+}
+
 type Paragraph = {
   paragraph_index: number
   text: string
   evidence_ids: string[]
+  citations?: Citation[]
 }
 
 type Section = {
@@ -322,41 +332,146 @@ export default function GenerateProjectPage() {
                   §{paraKey}
                 </div>
 
-                {p.evidence_ids.map(eid => {
-                  const meta = evidenceIndex[eid]
-                  if (!meta) return null
+                {p.citations && p.citations.length > 0
+                  ? p.citations.map((citation, idx) => {
+                      const meta = evidenceIndex[citation.evidence_id]
+                      if (!meta) return null
 
-                  const sourceTitle = sourceTitles[meta.source_id] || meta.source_id
+                      const sourceTitle = sourceTitles[meta.source_id] || meta.source_id
+                      const usageTypeColors: Record<string, string> = {
+                        direct: "#dc2626", // red for direct quotes
+                        substantial: "#ea580c", // orange for substantial use
+                        reference: "#6b7280", // gray for general reference
+                      }
+                      const usageTypeLabels: Record<string, string> = {
+                        direct: "Direct Quote",
+                        substantial: "Substantial Use",
+                        reference: "Reference",
+                      }
 
-                  return (
-                    <div
-                      key={`${paraKey}-${eid}`}
-                      style={{
-                        fontSize: "12px",
-                        marginBottom: "10px",
-                        color: "#374151",
-                      }}
-                    >
-                      <div>
-                        <strong>Source:</strong> {sourceTitle}
-                      </div>
-                      <div>
-                        <strong>Page:</strong> {meta.page_number},{" "}
-                        <strong>Paragraph:</strong>{" "}
-                        {meta.paragraph_index}
-                      </div>
-                      <div
-                        style={{
-                          marginTop: "4px",
-                          fontStyle: "italic",
-                          color: "#6b7280",
-                        }}
-                      >
-                        “{meta.excerpt}…”
-                      </div>
-                    </div>
-                  )
-                })}
+                      return (
+                        <div
+                          key={`${paraKey}-citation-${idx}`}
+                          style={{
+                            fontSize: "12px",
+                            marginBottom: "12px",
+                            padding: "10px",
+                            background: "#f9fafb",
+                            borderRadius: "6px",
+                            borderLeft: `3px solid ${usageTypeColors[citation.usage_type] || "#6b7280"}`,
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 600,
+                                color: usageTypeColors[citation.usage_type] || "#6b7280",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.5px",
+                              }}
+                            >
+                              {usageTypeLabels[citation.usage_type] || citation.usage_type}
+                            </span>
+                          </div>
+                          <div style={{ marginBottom: "4px" }}>
+                            <strong>Source:</strong> {sourceTitle}
+                          </div>
+                          <div style={{ marginBottom: "4px" }}>
+                            <strong>Page:</strong> {meta.page_number},{" "}
+                            <strong>Paragraph:</strong> {meta.paragraph_index}
+                            {citation.char_start !== undefined && citation.char_end !== undefined && (
+                              <span style={{ marginLeft: "8px", color: "#6b7280" }}>
+                                · Chars {citation.char_start}-{citation.char_end}
+                              </span>
+                            )}
+                          </div>
+                          {citation.usage_type === "direct" && citation.quoted_text && (
+                            <div
+                              style={{
+                                marginTop: "6px",
+                                padding: "8px",
+                                background: "#fff",
+                                border: "1px solid #e5e7eb",
+                                borderRadius: "4px",
+                                fontFamily: "monospace",
+                                fontSize: "11px",
+                                color: "#1f2937",
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, marginBottom: "4px", color: "#dc2626" }}>
+                                Direct Quote:
+                              </div>
+                              "{citation.quoted_text}"
+                            </div>
+                          )}
+                          {citation.usage_type === "substantial" && citation.excerpt && (
+                            <div
+                              style={{
+                                marginTop: "6px",
+                                padding: "8px",
+                                background: "#fff",
+                                border: "1px solid #e5e7eb",
+                                borderRadius: "4px",
+                                fontSize: "11px",
+                                color: "#1f2937",
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, marginBottom: "4px", color: "#ea580c" }}>
+                                Substantial Use:
+                              </div>
+                              {citation.excerpt}
+                            </div>
+                          )}
+                          {citation.usage_type === "reference" && (
+                            <div
+                              style={{
+                                marginTop: "6px",
+                                fontStyle: "italic",
+                                color: "#6b7280",
+                                fontSize: "11px",
+                              }}
+                            >
+                              “{meta.excerpt}…”
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  : p.evidence_ids.map(eid => {
+                      const meta = evidenceIndex[eid]
+                      if (!meta) return null
+
+                      const sourceTitle = sourceTitles[meta.source_id] || meta.source_id
+
+                      return (
+                        <div
+                          key={`${paraKey}-${eid}`}
+                          style={{
+                            fontSize: "12px",
+                            marginBottom: "10px",
+                            color: "#374151",
+                          }}
+                        >
+                          <div>
+                            <strong>Source:</strong> {sourceTitle}
+                          </div>
+                          <div>
+                            <strong>Page:</strong> {meta.page_number},{" "}
+                            <strong>Paragraph:</strong> {meta.paragraph_index}
+                          </div>
+                          <div
+                            style={{
+                              marginTop: "4px",
+                              fontStyle: "italic",
+                              color: "#6b7280",
+                            }}
+                          >
+                            “{meta.excerpt}…”
+                          </div>
+                        </div>
+                      )
+                    })}
               </div>
             )
           })
