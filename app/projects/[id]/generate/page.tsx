@@ -48,6 +48,7 @@ export default function GenerateProjectPage() {
   const [sourceTitles, setSourceTitles] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [selectedApproach, setSelectedApproach] = useState<any>(null)
+  const [copySuccess, setCopySuccess] = useState(false)
 
   useEffect(() => {
     if (!projectId || !queryText) {
@@ -158,6 +159,46 @@ export default function GenerateProjectPage() {
     return <div style={{ padding: "80px" }}>No output available.</div>
   }
 
+  /* ================= COPY FUNCTION ================= */
+  
+  const copyCleanText = async () => {
+    if (!reasoning) return
+    
+    // Format clean text without extraneous elements
+    const cleanText = reasoning.sections
+      .map(section => {
+        const sectionTitle = section.title
+        const paragraphs = section.paragraphs
+          .map(p => p.text.trim())
+          .join("\n\n")
+        return `${sectionTitle}\n\n${paragraphs}`
+      })
+      .join("\n\n")
+    
+    try {
+      await navigator.clipboard.writeText(cleanText)
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    } catch (err) {
+      console.error("Failed to copy:", err)
+      // Fallback: select text in a textarea
+      const textarea = document.createElement("textarea")
+      textarea.value = cleanText
+      textarea.style.position = "fixed"
+      textarea.style.opacity = "0"
+      document.body.appendChild(textarea)
+      textarea.select()
+      try {
+        document.execCommand("copy")
+        setCopySuccess(true)
+        setTimeout(() => setCopySuccess(false), 2000)
+      } catch (e) {
+        console.error("Fallback copy failed:", e)
+      }
+      document.body.removeChild(textarea)
+    }
+  }
+
   /* ================= MAIN RENDER ================= */
 
   return (
@@ -174,9 +215,27 @@ export default function GenerateProjectPage() {
       {/* ========== LEFT: PROJECT ========== */}
 
       <div>
-        <h1 style={{ fontSize: "26px", fontWeight: 700 }}>
-          Generated Research Project
-        </h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+          <h1 style={{ fontSize: "26px", fontWeight: 700, margin: 0 }}>
+            Generated Research Project
+          </h1>
+          <button
+            onClick={copyCleanText}
+            style={{
+              padding: "8px 16px",
+              background: copySuccess ? "#10b981" : "#111",
+              color: "#fff",
+              border: "none",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "background 0.2s",
+            }}
+          >
+            {copySuccess ? "✓ Copied!" : "Copy Clean Text"}
+          </button>
+        </div>
 
         <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "32px" }}>
           Query: <em>{queryText}</em>
@@ -209,36 +268,24 @@ export default function GenerateProjectPage() {
 
         {reasoning.sections.map(section => (
           <div key={section.section_index} style={{ marginBottom: "40px" }}>
-            <h2 style={{ fontSize: "20px", fontWeight: 600 }}>
-              {section.section_index}. {section.title}
+            <h2 style={{ fontSize: "20px", fontWeight: 600, marginBottom: "16px" }}>
+              {section.title}
             </h2>
 
             {section.paragraphs.map(p => {
               const paraKey = `${section.section_index}.${p.paragraph_index}`
 
               return (
-                <div
+                <p
                   key={paraKey}
                   style={{
+                    fontSize: "15px",
+                    lineHeight: 1.7,
                     marginBottom: "20px",
-                    paddingLeft: "12px",
-                    borderLeft: "3px solid #e5e7eb",
                   }}
                 >
-                  <p style={{ fontSize: "15px", lineHeight: 1.7 }}>
-                    <strong>§{paraKey}</strong> {p.text}
-                  </p>
-
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "#6b7280",
-                      marginTop: "6px",
-                    }}
-                  >
-                    Evidence: see traceability panel →
-                  </div>
-                </div>
+                  {p.text}
+                </p>
               )
             })}
           </div>
