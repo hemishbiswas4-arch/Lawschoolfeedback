@@ -156,22 +156,14 @@ export default function Home() {
               <Link href="/login?next=/projects" style={styles.primaryBtn}>
                 Open Project Pipeline
               </Link>
+              <Link href="/feedback" style={styles.primaryBtn}>
+                Give Feedback
+              </Link>
             </div>
 
             <div style={styles.meta}>
               <span style={styles.betaTag}>BETA v0.1</span>
               <span>Structured academic workflows</span>
-              <a
-                href="/admin/feedback"
-                style={{
-                  fontSize: "12px",
-                  color: "#9ca3af",
-                  textDecoration: "underline",
-                  marginLeft: "16px",
-                }}
-              >
-                Admin
-              </a>
             </div>
           </div>
 
@@ -201,6 +193,23 @@ export default function Home() {
           </div>
         </div>
       </main>
+
+      <footer style={{
+        padding: "20px 40px",
+        borderTop: "1px solid #f3f4f6",
+        textAlign: "center",
+      }}>
+        <a
+          href="/admin/feedback"
+          style={{
+            fontSize: "12px",
+            color: "#9ca3af",
+            textDecoration: "underline",
+          }}
+        >
+          Admin
+        </a>
+      </footer>
     </div>
   )
 }

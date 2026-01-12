@@ -11,7 +11,7 @@ Run the SQL script to create the feedback table:
 
 ## Access Admin Panel
 
-1. Visit `/admin/feedback` in your browser
+1. Visit the homepage and click "Admin" at the bottom of the page
 2. Enter the password: `hadesfudge`
 3. You'll be authenticated and can view all feedback
 

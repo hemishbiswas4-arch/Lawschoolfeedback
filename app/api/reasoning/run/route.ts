@@ -538,12 +538,12 @@ export async function POST(req: Request) {
 
       // If generation has been running for more than 5 minutes, allow new requests
       if (elapsed > GENERATION_TIMEOUT_MS) {
-        console.log(`GENERATION [${runId}] Previous generation timed out (${elapsed}ms), allowing new request`)
+        log(runId, "GENERATION_TIMEOUT_RESET", { elapsed_ms: elapsed, timeout_ms: GENERATION_TIMEOUT_MS }, "WARN")
         generationInFlight = false
         generationStartTime = null
       } else {
         // Return error message asking user to try again later
-        console.log(`GENERATION [${runId}] Generation busy (${elapsed}ms elapsed), returning error`)
+        log(runId, "GENERATION_BUSY", { elapsed_ms: elapsed, remaining_ms: GENERATION_TIMEOUT_MS - elapsed }, "WARN")
         return NextResponse.json(
           { error: "Generation is currently in progress. Please try again in 5 minutes." },
           { status: 429 }
@@ -553,6 +553,7 @@ export async function POST(req: Request) {
 
     generationInFlight = true
     generationStartTime = Date.now()
+    log(runId, "GENERATION_LOCK_ACQUIRED", { project_id: project_id })
 
     try {
       /* ================= LOAD PROJECT & SOURCE CONTEXT ================= */

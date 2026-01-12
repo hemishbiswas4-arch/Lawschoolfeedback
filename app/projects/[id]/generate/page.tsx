@@ -169,10 +169,24 @@ export default function GenerateProjectPage() {
   }
 
   if (error && !reasoning) {
+    const isBusyError = error.includes("Generation is currently busy") || error.includes("Please try again in 5 minutes")
+
     return (
       <div style={{ padding: "80px", color: "#b91c1c" }}>
-        <h2>Unable to Generate Project</h2>
-        <p>{error}</p>
+        <h2>{isBusyError ? "Generation In Progress" : "Unable to Generate Project"}</h2>
+        <p style={{ fontSize: "16px", marginBottom: "16px" }}>{error}</p>
+        {isBusyError && (
+          <div style={{
+            background: "#fef3c7",
+            border: "1px solid #f59e0b",
+            borderRadius: "8px",
+            padding: "16px",
+            marginBottom: "24px",
+            color: "#92400e"
+          }}>
+            <strong>💡 Tip:</strong> Generation can take several minutes. You can work on other projects in the meantime or check back later.
+          </div>
+        )}
         <div style={{ marginTop: "20px" }}>
           <a
             href={`/projects/${projectId}/synthesize?query=${encodeURIComponent(queryText || "")}`}
