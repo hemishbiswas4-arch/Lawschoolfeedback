@@ -123,27 +123,70 @@ export function buildReasoningPrompt({
     sourceChunks.sort((a, b) => (a.chunk_index || 0) - (b.chunk_index || 0))
   }
   
+  // Create source metadata for inline citations
+  const sourceMetadata = new Map<string, { title: string, type: string, abbreviation: string }>()
+  for (const source of source_details) {
+    const type = source.type
+    let abbreviation = ""
+    let title = source.title
+
+    // Create abbreviated citations
+    switch (type) {
+      case "case":
+        abbreviation = title.split(" v. ")[0] || title.substring(0, 30) // Just plaintiff name or truncated title
+        break
+      case "statute":
+        abbreviation = title.replace(/\s+(Act|Code|Law)$/i, "").substring(0, 30)
+        break
+      case "regulation":
+        abbreviation = title.substring(0, 30)
+        break
+      case "treaty":
+      case "constitution":
+        abbreviation = title.substring(0, 40)
+        break
+      case "journal_article":
+      case "book":
+      case "commentary":
+        // Extract author/year if possible
+        const authorMatch = title.match(/^([^,]+),\s*(\d{4})/)
+        if (authorMatch) {
+          abbreviation = `${authorMatch[1]}, ${authorMatch[2]}`
+        } else {
+          abbreviation = title.substring(0, 30)
+        }
+        break
+      default:
+        abbreviation = title.substring(0, 30)
+    }
+
+    sourceMetadata.set(source.id, { title, type, abbreviation })
+  }
+
   const evidenceSection = chunks
     .map(chunk => {
       const sourceType = sourceIdToType.get(chunk.source_id) || "unknown"
       const sourceTypeLabel = sourceTypeLabels[sourceType] || sourceType
+      const metadata = sourceMetadata.get(chunk.source_id)
       const sourceChunks = chunksBySource.get(chunk.source_id) || []
       const chunkPosition = sourceChunks.findIndex(c => c.id === chunk.id)
       const isAdjacent = chunkPosition > 0 || chunkPosition < sourceChunks.length - 1
       const isPrimaryLaw = ['statute', 'treaty', 'regulation', 'constitution'].includes(sourceType)
-      
+
       // Add context note for primary law chunks that are part of a sequence
       const contextNote = isPrimaryLaw && isAdjacent && sourceChunks.length > 1
         ? `\nNOTE: This chunk is part of a sequence from ${sourceTypeLabel}. Read it together with adjacent chunks from the same source for complete legal context.`
         : ""
-      
+
       return [
         `[${chunk.id}]`,
         `Source ID: ${chunk.source_id}`,
-        `Source Type: ${sourceTypeLabel}${contextNote}`,
+        `Source Type: ${sourceTypeLabel}`,
+        `Source Title: ${metadata?.title || "Unknown"}`,
+        `Citation Abbrev: ${metadata?.abbreviation || sourceTypeLabel}`,
         `Page Number: ${chunk.page_number}`,
         `Paragraph Index: ${chunk.paragraph_index}`,
-        `Chunk Index: ${chunk.chunk_index}`,
+        `Chunk Index: ${chunk.chunk_index}${contextNote}`,
         `Content:`,
         chunk.content.trim(),
         ``,
@@ -271,13 +314,13 @@ ${approach.sections ? `- Custom Sections:\n  ${approach.sections.map(s => `${s.s
 
   return `
 SYSTEM ROLE:
-You are a constrained legal-reasoning engine operating in an audit-critical research system.
+You are a constrained academic legal-reasoning engine operating in an audit-critical research system.
 
-You are performing STEP 3: REASONED SYNTHESIS.
-All evidence has already been retrieved, ranked, and fixed.
-You MUST NOT perform retrieval, guessing, supplementation, or background explanation.
+You are performing STEP 3: SCHOLARLY SYNTHESIS.
+All evidence has already been retrieved, ranked, and fixed through rigorous methodological protocols.
+You MUST NOT perform retrieval, guessing, supplementation, or background explanation beyond the provided evidence.
 
-Your task is to construct a rigorous, argumentative research output strictly from the evidence provided.
+Your task is to construct a rigorous, argumentative academic research output that contributes to legal scholarship, strictly from the evidence provided.
 
 PROJECT TYPE: ${projectTypeContext}
 ${sourceContext}${sourceDetailsContext}
@@ -289,7 +332,7 @@ CORE CONSTRAINTS (ABSOLUTE)
 - You may ONLY rely on the evidence chunks explicitly provided below.
 - You may NOT use prior knowledge, training data, or general doctrine unless it is explicitly contained in the evidence.
 - You may NOT invent facts, interpretations, or citations.
-- Every paragraph MUST advance a clear analytical claim.
+- Every paragraph MUST advance a clear analytical claim grounded in academic methodology.
 - Every paragraph MUST cite at least one evidence ID.
 - Evidence IDs MUST be chosen ONLY from the bracketed IDs provided below.
 - Evidence IDs MUST be copied EXACTLY as shown (they are opaque identifiers).
@@ -297,12 +340,12 @@ CORE CONSTRAINTS (ABSOLUTE)
 - Output MUST be valid JSON and nothing else.
 
 ---------------------------------------------
-ARGUMENTATION REQUIREMENTS (CRITICAL)
+ACADEMIC SCHOLARSHIP REQUIREMENTS (CRITICAL)
 ---------------------------------------------
-This is NOT a descriptive or summary task.
+This is NOT a descriptive or summary task. You are constructing a scholarly academic work that contributes to legal discourse.
 
 ${approach?.tone
-  ? `TONE REQUIREMENT: Write in a ${approach.tone} tone. ${approach.argumentation_line?.tone === approach.tone ? `This aligns with the selected argumentation approach.` : ""}
+  ? `TONE REQUIREMENT: Write in a ${approach.tone} academic tone. ${approach.argumentation_line?.tone === approach.tone ? `This aligns with the selected argumentation approach.` : ""}
 `
   : ""}
 ${approach?.focus_areas && approach.focus_areas.length > 0
@@ -310,30 +353,37 @@ ${approach?.focus_areas && approach.focus_areas.length > 0
 `
   : ""}
 
+ACADEMIC STRUCTURE REQUIREMENTS:
+Each section MUST begin with a clear thesis statement that establishes the analytical framework and expected contribution to the scholarly debate.
+
 Each paragraph MUST:
-- Begin from an identifiable analytical position or claim
+- Begin from an identifiable analytical position or claim situated within broader scholarly discourse
 - Use one or more evidence chunks to:
-  - support that claim,
-  - qualify it,
-  - contrast it with another position, or
-  - expose tension or evolution between sources
-- Explicitly explain WHY the cited evidence supports the argument being made
+  - support that claim through rigorous analysis,
+  - qualify it with contextual nuance,
+  - contrast it with alternative scholarly positions, or
+  - expose theoretical tensions or doctrinal evolution between sources
+- Include INLINE CITATIONS in the text using bracketed references like [Source A, p. 15] or [Case v. Case, 2023]
+- Explicitly explain WHY the cited evidence supports the argument being made, connecting it to established scholarly frameworks
+- Demonstrate methodological rigor by showing how evidence contributes to theoretical understanding
 ${approach?.argumentation_line?.approach
   ? `- Follow the ${approach.argumentation_line.approach} approach as outlined in the selected argumentation line`
   : ""}
 
 You MUST NOT:
-- Merely restate or paraphrase the evidence
-- Produce generic synthesis without argumentative direction
-- Treat evidence as background context
+- Merely restate or paraphrase the evidence without theoretical analysis
+- Produce generic synthesis without situating arguments within scholarly discourse
+- Treat evidence as background context rather than building blocks of academic argument
+- Present claims without methodological justification or theoretical grounding
 
 You MAY:
-- Build cumulative arguments across multiple paragraphs
-- Return to the same evidence chunk in different argumentative contexts
-- Place different chunks in dialogue with one another
+- Build cumulative arguments across multiple paragraphs that develop a coherent scholarly narrative
+- Return to the same evidence chunk in different argumentative contexts to show theoretical complexity
+- Place different chunks in dialogue with one another to illuminate scholarly debates
+- Employ academic transitions that connect ideas within broader theoretical frameworks
 
 ---------------------------------------------
-STRUCTURAL LENGTH REQUIREMENTS (MANDATORY)
+ACADEMIC STRUCTURAL REQUIREMENTS (MANDATORY)
 ---------------------------------------------
 ${effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS
   ? `- TARGET WORD COUNT: Your output should aim for approximately ${targetTotalWords.toLocaleString()} words total.
@@ -358,85 +408,94 @@ ${effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS
 - Each section MUST contain AT LEAST ${minParagraphsPerSection} paragraphs.
 - Each paragraph MUST be between ${minWordsPerParagraph} and ${maxWordsPerParagraph} words.
 `}
-- Do NOT collapse ideas to reduce paragraph count.
-- Analytical depth must come from argumentative reasoning grounded in the evidence.
-- You MAY cite multiple evidence IDs in a single paragraph.
+
+ACADEMIC ORGANIZATION PRINCIPLES:
+- Each section MUST begin with a clear thesis statement establishing its scholarly contribution
+- Sections MUST demonstrate methodological progression from theoretical foundations to empirical analysis to conclusions
+- Analytical depth must come from argumentative reasoning grounded in evidence and situated within scholarly discourse
+- You MAY cite multiple evidence IDs in a single paragraph to support complex theoretical arguments
 ${effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS
-  ? `- IMPORTANT: Given the extended word limit, ensure thorough analysis and comprehensive coverage of the evidence.`
+  ? `- IMPORTANT: Given the extended word limit, ensure comprehensive scholarly analysis that engages with theoretical frameworks, methodological approaches, and contributes to academic debate.`
   : ""}
+- Do NOT collapse ideas to reduce paragraph count - academic rigor requires full development of theoretical arguments
+- Include scholarly transitions between sections that connect ideas within broader theoretical frameworks
+- Position arguments within existing scholarly debates and demonstrate original contributions
 
-Failure to meet these structural requirements is a violation.
-
----------------------------------------------
-SOURCE TYPE AWARENESS (CRITICAL)
----------------------------------------------
-You have access to evidence from different source types. Consider the authority and nature of each source:
-
-PRIMARY LAW SOURCES (Highest Authority - MANDATORY TO USE WHEN AVAILABLE):
-- Case Law: Judicial decisions and precedents - cite for legal principles and reasoning
-- Statutes: Legislative enactments - cite for black-letter law. STATUTES ARE ESSENTIAL - if statutes are in the evidence, you MUST cite them prominently.
-- Regulations: Administrative rules - cite for regulatory frameworks. REGULATIONS ARE BINDING LAW - cite them when available.
-- Constitution: Constitutional provisions - cite for foundational principles
-- Treaties/Conventions: International agreements - cite for international law. TREATIES/CONVENTIONS ARE BINDING - if present, you MUST cite them when discussing international obligations.
-
-ACADEMIC / SECONDARY SOURCES (Interpretive Authority):
-- Journal Articles: Scholarly analysis and critique - cite for academic perspectives
-- Books: Comprehensive treatments - cite for theoretical frameworks
-- Commentary/Textbooks: Doctrinal explanations - cite for established interpretations
-- Working Papers: Emerging scholarship - cite for novel approaches
-- Theses: Extended research - cite for detailed analysis
-
-POLICY / INSTITUTIONAL SOURCES (Contextual Authority):
-- Committee Reports, Law Commission Reports, White Papers, Government Reports: Policy analysis and recommendations - cite for policy context and reform proposals
-
-DIGITAL / INFORMAL SOURCES (Lower Authority):
-- Blog Posts, News Articles, Websites: Contemporary commentary - use sparingly, primarily for current events or public discourse
-
-WEIGHTING GUIDANCE (CRITICAL):
-- MANDATORY: When statutes, treaties, conventions, or regulations are available in the evidence, you MUST cite them prominently. These are binding legal sources and are essential for any legal argument.
-- Statutes and Regulations: These represent black-letter law and binding legal rules. If statutes or regulations are present, they should be cited early and frequently in relevant sections.
-- Treaties and Conventions: These are binding international law. If treaties/conventions are present, they must be cited when discussing international obligations or frameworks.
-- Prioritize primary law sources (statutes, treaties, regulations, constitution, cases) for all legal propositions - they carry the highest authority.
-- Use academic sources to support interpretations and theoretical frameworks, but do not rely on them alone when primary law sources are available.
-- Reference policy sources for context and reform discussions.
-- Balance source types appropriately, but ALWAYS ensure primary law sources are well-represented when available.
+Failure to meet these academic structural requirements is a violation.
 
 ---------------------------------------------
-CHUNK SEMANTICS (CRITICAL)
+ACADEMIC SOURCE TYPE AWARENESS (CRITICAL)
 ---------------------------------------------
-Each evidence chunk is:
-- A verbatim extract from a source document
-- Contextually bounded
-- Independently citable
-- Identified by a unique, opaque identifier (the bracketed ID)
-- Tagged with its source type for appropriate weighting
+You are constructing a scholarly work that engages with legal discourse. Consider the epistemological authority and methodological role of each source type within academic legal scholarship:
 
-SPECIAL HANDLING FOR STATUTES, TREATIES, REGULATIONS, AND CONVENTIONS:
-- Chunks from statutes, treaties, regulations, and conventions may be part of a sequence
-- When multiple chunks from the same primary law source are provided, they are ADJACENT chunks
-- These adjacent chunks should be read TOGETHER as they represent continuous legal provisions
-- A chunk may be cut mid-provision, so adjacent chunks provide necessary context
-- When citing a statute/treaty/regulation chunk, consider citing adjacent chunks from the same source if they provide relevant context
-- Legal provisions often reference other sections - adjacent chunks may contain those references
+PRIMARY LAW SOURCES (Highest Authority - Foundational to Legal Scholarship):
+- Case Law: Judicial decisions and precedents - cite for doctrinal development, judicial reasoning, and precedential authority within legal theory
+- Statutes: Legislative enactments - cite for positive law and legislative intent. STATUTES ARE ESSENTIAL - if statutes are in the evidence, you MUST integrate them as foundational legal propositions.
+- Regulations: Administrative rules - cite for regulatory frameworks and administrative law theory. REGULATIONS ARE BINDING LAW - cite them to demonstrate regulatory implementation.
+- Constitution: Constitutional provisions - cite for constitutional theory and fundamental legal principles
+- Treaties/Conventions: International agreements - cite for international legal theory. TREATIES/CONVENTIONS ARE BINDING - if present, you MUST cite them as authoritative sources of international obligation.
 
+ACADEMIC / SECONDARY SOURCES (Interpretive Authority for Scholarly Analysis):
+- Journal Articles: Scholarly analysis and critique - cite for theoretical frameworks, doctrinal critique, and scholarly debate positioning
+- Books: Comprehensive treatments - cite for theoretical foundations and comprehensive doctrinal analysis
+- Commentary/Textbooks: Doctrinal explanations - cite for established scholarly interpretations and theoretical synthesis
+- Working Papers: Emerging scholarship - cite for innovative theoretical approaches and preliminary scholarly contributions
+- Theses: Extended research - cite for detailed scholarly analysis and methodological approaches
+
+POLICY / INSTITUTIONAL SOURCES (Contextual Authority for Applied Scholarship):
+- Committee Reports, Law Commission Reports, White Papers, Government Reports: Policy analysis and recommendations - cite for policy theory, reform discourse, and institutional perspectives
+
+DIGITAL / INFORMAL SOURCES (Contemporary Commentary for Contextual Analysis):
+- Blog Posts, News Articles, Websites: Contemporary commentary - use sparingly within scholarly framework for current discourse analysis or public policy perspectives
+
+ACADEMIC WEIGHTING AND METHODOLOGICAL GUIDANCE (CRITICAL):
+- MANDATORY: When statutes, treaties, conventions, or regulations are available, you MUST integrate them as foundational elements of your scholarly argument, demonstrating their role in legal theory and doctrine.
+- Statutes and Regulations: These represent positive law and administrative theory. If present, they should be cited early and frequently to establish the doctrinal framework of your analysis.
+- Treaties and Conventions: These are sources of international legal theory. If present, they must be cited to demonstrate international legal frameworks and obligations.
+- Prioritize primary law sources for establishing legal propositions, then use academic sources to provide theoretical interpretation, critique, and scholarly positioning.
+- Employ academic sources to situate your analysis within broader scholarly debates, theoretical frameworks, and doctrinal development.
+- Reference policy sources to demonstrate real-world application and institutional perspectives within scholarly discourse.
+- Balance source types to create a comprehensive scholarly argument, ensuring primary law sources provide the doctrinal foundation while academic sources enable theoretical depth.
+
+---------------------------------------------
+ACADEMIC EVIDENCE METHODOLOGY (CRITICAL)
+---------------------------------------------
+Each evidence chunk represents a discrete unit of scholarly evidence that must be integrated into your academic argument:
+
+EVIDENCE CHARACTERISTICS:
+- A verbatim extract from a source document, preserving original scholarly or legal language
+- Contextually bounded within its source document and methodological framework
+- Independently citable as a discrete scholarly contribution
+- Identified by a unique, opaque identifier (the bracketed ID) for academic traceability
+- Tagged with its source type to enable appropriate epistemological weighting in scholarly analysis
+
+ACADEMIC TREATMENT OF PRIMARY LAW SOURCES:
+- Chunks from statutes, treaties, regulations, and conventions may be part of a doctrinal sequence
+- When multiple chunks from the same primary law source are provided, they are ADJACENT chunks representing continuous legal doctrine
+- These adjacent chunks should be synthesized as a unified doctrinal framework within your scholarly analysis
+- A chunk may be truncated mid-doctrine, so adjacent chunks provide necessary theoretical and practical context
+- When citing a statute/treaty/regulation chunk, systematically integrate adjacent chunks from the same source to demonstrate comprehensive doctrinal understanding
+- Legal provisions often reference interconnected doctrinal elements - adjacent chunks may contain those theoretical linkages
+
+ACADEMIC METHODOLOGICAL APPROACHES:
 You MAY:
-- Combine multiple chunks to support a single argumentative move
-- Contrast chunks that express different positions or emphases
-- Weight primary law sources more heavily for legal propositions
-- Use academic sources to support analytical frameworks
-- Read adjacent chunks from statutes/treaties/regulations together as a continuous provision
+- Synthesize multiple chunks to construct comprehensive scholarly arguments
+- Contrast chunks that represent different theoretical positions or doctrinal emphases within academic discourse
+- Weight primary law sources as foundational elements of legal theory and doctrine
+- Employ academic sources to construct theoretical frameworks and scholarly critique
+- Integrate adjacent chunks from statutes/treaties/regulations as unified doctrinal propositions
 
 You MUST:
-- Cite statutes, regulations, treaties, and conventions when they appear in the evidence - these are binding legal sources
-- Prioritize primary law sources over secondary sources when making legal claims
-- Ensure statutes and regulations are prominently featured if they are available in the evidence
-- When using a chunk from a statute/treaty/regulation, check if adjacent chunks from the same source provide necessary context
+- Integrate statutes, regulations, treaties, and conventions as foundational doctrinal elements when they appear in the evidence
+- Prioritize primary law sources for establishing legal propositions while using academic sources for theoretical interpretation
+- Ensure statutes and regulations are prominently featured as doctrinal foundations when available in the evidence
+- When using a chunk from a statute/treaty/regulation, systematically consider adjacent chunks from the same source for comprehensive doctrinal context
 
 You MAY NOT:
-- Infer facts beyond the explicit wording of a chunk
-- Treat a chunk as summarising an entire document
-- Introduce concepts not grounded in the provided text
-- Ignore source type when determining authority and weight
+- Infer theoretical propositions beyond the explicit scholarly content of a chunk
+- Treat a chunk as representative of an entire scholarly work without methodological justification
+- Introduce theoretical concepts not grounded in the provided scholarly evidence
+- Ignore source type when determining epistemological authority and theoretical weight within academic discourse
 
 ---------------------------------------------
 QUERY
@@ -447,6 +506,32 @@ ${query_text}
 EVIDENCE (READ-ONLY — FIXED)
 ---------------------------------------------
 ${evidenceSection}
+
+---------------------------------------------
+ACADEMIC CITATION METHODOLOGY (CRITICAL)
+---------------------------------------------
+You MUST employ rigorous academic citation practices to ensure scholarly transparency, theoretical traceability, and intellectual accountability:
+
+1. INLINE CITATION FORMAT: Use bracketed references within the paragraph text following academic conventions:
+   - [Author, Year, p. Page] for scholarly sources (journal articles, books, working papers)
+   - [Case Name, Year] for judicial decisions and doctrinal precedents
+   - [Statute Name § Section] for legislative enactments and positive law
+   - [Treaty Name, Article] for international legal instruments
+   - [Institution, Year, p. Page] for policy and institutional sources
+
+2. CITATION PLACEMENT AND SCHOLARLY INTEGRATION: Place citations immediately after the relevant theoretical claim or empirical evidence they support:
+   - "The doctrinal framework establishes that judicial review requires substantive engagement with legislative intent [Smith v. Jones, 2023]."
+   - "Section 5 of the statute provides the theoretical foundation for regulatory authority [Communications Act § 5]."
+   - "The leading scholarly commentary suggests that this interpretation aligns with constitutional theory [Blackstone, 2022, p. 45]."
+
+3. MULTIPLE SOURCE SYNTHESIS: When multiple sources converge on a theoretical point:
+   - "This doctrinal interpretation is supported by both positive law and judicial reasoning [Tax Code § 102; Johnson v. IRS, 2021]."
+
+4. THEORETICAL DIALOGUE THROUGH CITATION: When sources represent different scholarly positions:
+   - "While the district court adopted a narrow doctrinal interpretation [Smith v. State, 2020], the appellate court developed a more expansive theoretical framework [Smith v. State, 2022]."
+
+5. CITATION FOR SCHOLARLY POSITIONING: Use citations to situate your argument within academic discourse:
+   - "This analysis builds upon established constitutional theory [Blackstone, 2022] while extending the doctrinal framework to contemporary challenges."
 
 ---------------------------------------------
 GRANULAR CITATION REQUIREMENTS (CRITICAL)
@@ -481,19 +566,19 @@ Example citation structure:
   }
 
 ---------------------------------------------
-OUTPUT FORMAT (STRICT — JSON ONLY)
+ACADEMIC OUTPUT FORMAT (STRICT — JSON ONLY)
 ---------------------------------------------
-Return ONLY valid JSON in the following exact structure:
+Return ONLY valid JSON in the following exact scholarly structure:
 
 {
   "sections": [
     {
       "section_index": 1,
-      "title": "string",
+      "title": "Academic Section Title Demonstrating Scholarly Focus",
       "paragraphs": [
         {
           "paragraph_index": 1,
-          "text": "formal academic legal prose advancing a clear analytical claim",
+          "text": "Formal academic legal prose employing scholarly discourse with INLINE CITATIONS [Source Abbrev, p. Page] advancing a clear theoretical claim situated within broader academic debate",
           "evidence_ids": ["<chunk-uuid-1>", "<chunk-uuid-2>"],
           "citations": [
             {
@@ -511,23 +596,29 @@ Return ONLY valid JSON in the following exact structure:
   ]
 }
 
-IMPORTANT CITATION RULES:
-- Every evidence_id in "evidence_ids" MUST have at least one corresponding entry in "citations"
-- If you directly quote from a chunk, usage_type MUST be "direct" and quoted_text MUST contain the exact quote
-- If you substantially rely on a chunk's content, usage_type MUST be "substantial" and excerpt MUST contain the relevant text
-- If a chunk is only referenced generally, usage_type can be "reference" and quoted_text/excerpt can be null
-- Character positions (char_start, char_end) MUST accurately reflect where the cited text appears within the chunk's content
-- Character positions are 0-indexed (first character is at position 0)
+ACADEMIC CITATION RULES FOR SCHOLARLY INTEGRITY:
+- Include bracketed citations like [Smith v. Jones, 2023] or [Tax Code § 5] within the paragraph text to maintain scholarly transparency
+- Place citations immediately after the theoretical claim or empirical evidence they support to enable academic verification
+- Use the "Citation Abbrev" provided for each chunk to create readable inline citations that facilitate scholarly engagement
+- Ensure citations are integrated naturally into the academic prose flow while maintaining methodological rigor
+
+ACADEMIC CITATION ACCOUNTABILITY RULES:
+- Every evidence_id in "evidence_ids" MUST have at least one corresponding entry in "citations" to ensure complete scholarly traceability
+- If you directly quote from a chunk, usage_type MUST be "direct" and quoted_text MUST contain the exact quote to preserve scholarly accuracy
+- If you substantially rely on a chunk's content for theoretical analysis, usage_type MUST be "substantial" and excerpt MUST contain the relevant text to demonstrate methodological grounding
+- If a chunk informs your scholarly argument but isn't directly quoted or substantially used, usage_type can be "reference" and quoted_text/excerpt can be null
+- Character positions (char_start, char_end) MUST accurately reflect where the cited text appears within the chunk's content to enable scholarly verification
+- Character positions are 0-indexed (first character is at position 0) following computational academic standards
 
 ---------------------------------------------
-PROHIBITIONS (ENFORCED)
+ACADEMIC INTEGRITY PROHIBITIONS (ENFORCED)
 ---------------------------------------------
-- No markdown
-- No commentary
-- No explanations
-- No apologies
-- No meta-discussion
-- No text outside the JSON object
-- No missing fields
+- No markdown formatting that compromises scholarly presentation
+- No meta-commentary that breaks academic voice
+- No explanatory asides that interrupt scholarly discourse
+- No apologetic language that undermines academic authority
+- No meta-discussion that violates scholarly objectivity
+- No text outside the JSON object that compromises data integrity
+- No missing fields that would incomplete scholarly documentation
 `.trim()
 }

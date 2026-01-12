@@ -87,6 +87,131 @@ type SourceCoverageResult = {
   missing_source_ids: string[]
 }
 
+/* ================= ARGUMENT ANALYSIS ================= */
+
+function analyzeCitationPatterns(chunks: any[]): Map<string, string[]> {
+  const citationMap = new Map<string, string[]>()
+
+  // Legal citation patterns to detect cross-references
+  const legalCitationRegex = /\b\d{4}\b.*?\b\d{4}\b|See\s.*?(\d{4})|v\.|Cf\.|Id\.|Supra|Infra/gi
+
+  for (const chunk of chunks) {
+    const citations: string[] = []
+    const text = chunk.text?.toLowerCase() || ""
+
+    // Check for legal citation patterns
+    if (legalCitationRegex.test(text)) {
+      citations.push("legal_citation")
+    }
+
+    // Check for cross-references within the same document
+    const crossRefPatterns = [
+      /see\s+(?:section|article|paragraph)\s+\d+/gi,
+      /pursuant\s+to\s+(?:section|article)/gi,
+      /in\s+accordance\s+with/gi,
+      /subject\s+to/gi,
+      /notwithstanding/gi,
+      /provided\s+that/gi,
+    ]
+
+    for (const pattern of crossRefPatterns) {
+      if (pattern.test(text)) {
+        citations.push("cross_reference")
+        break
+      }
+    }
+
+    // Check for argumentative connectors
+    const argumentConnectors = [
+      /however/gi,
+      /moreover/gi,
+      /furthermore/gi,
+      /consequently/gi,
+      /therefore/gi,
+      /thus/gi,
+      /accordingly/gi,
+      /nevertheless/gi,
+      /notwithstanding/gi,
+      /whereas/gi,
+    ]
+
+    for (const connector of argumentConnectors) {
+      if (connector.test(text)) {
+        citations.push("argument_connector")
+        break
+      }
+    }
+
+    citationMap.set(chunk.id, citations)
+  }
+
+  return citationMap
+}
+
+function identifyArgumentGroups(chunks: any[], citationPatterns: Map<string, string[]>): Map<string, string[]> {
+  const argumentGroups = new Map<string, string[]>()
+
+  // Group chunks by source to identify coherent arguments within documents
+  const chunksBySource = new Map<string, typeof chunks>()
+  for (const chunk of chunks) {
+    if (!chunksBySource.has(chunk.source_id)) {
+      chunksBySource.set(chunk.source_id, [])
+    }
+    chunksBySource.get(chunk.source_id)!.push(chunk)
+  }
+
+  // Sort chunks within each source by chunk_index for sequential analysis
+  for (const [sourceId, sourceChunks] of chunksBySource.entries()) {
+    sourceChunks.sort((a, b) => (a.chunk_index || 0) - (b.chunk_index || 0))
+
+    // Identify argument units: sequences of chunks that form coherent arguments
+    let currentGroup: string[] = []
+    let groupId = `${sourceId}_arg_0`
+
+    for (let i = 0; i < sourceChunks.length; i++) {
+      const chunk = sourceChunks[i]
+      const patterns = citationPatterns.get(chunk.id) || []
+
+      // Start new group if this chunk has strong argumentative markers
+      if (patterns.includes("argument_connector") ||
+          patterns.includes("cross_reference") ||
+          i === 0) {
+        if (currentGroup.length > 0) {
+          argumentGroups.set(groupId, [...currentGroup])
+          groupId = `${sourceId}_arg_${argumentGroups.size}`
+          currentGroup = []
+        }
+      }
+
+      currentGroup.push(chunk.id)
+
+      // Also check if next chunk continues the argument
+      if (i < sourceChunks.length - 1) {
+        const nextChunk = sourceChunks[i + 1]
+        const nextPatterns = citationPatterns.get(nextChunk.id) || []
+
+        // Continue group if chunks are closely related or sequential
+        const chunkGap = (nextChunk.chunk_index || 0) - (chunk.chunk_index || 0)
+        if (chunkGap <= 3 && (patterns.includes("cross_reference") || nextPatterns.includes("argument_connector"))) {
+          // Continue current group
+        } else if (chunkGap > 5) {
+          // Large gap suggests new argument unit
+          argumentGroups.set(groupId, [...currentGroup])
+          groupId = `${sourceId}_arg_${argumentGroups.size}`
+          currentGroup = []
+        }
+      }
+    }
+
+    // Add final group
+    if (currentGroup.length > 0) {
+      argumentGroups.set(groupId, currentGroup)
+    }
+  }
+
+  return argumentGroups
+}
+
 /* ================= LOGGING ================= */
 
 function log(
@@ -151,36 +276,135 @@ async function sendWithRetry(cmd: any, runId: string) {
   }
 }
 
-/* ================= SOURCE COVERAGE (BEST-EFFORT) ================= */
+/* ================= COMPREHENSIVE SOURCE COVERAGE & CITATION QUALITY ================= */
 
 function checkSourceCoverage(
   boundedChunks: any[],
   reasoningOutput: any,
   runId: string
-): SourceCoverageResult {
+): SourceCoverageResult & { quality_score: number; coverage_details: any } {
   const requiredSources = new Set<string>(
     boundedChunks.map(c => c.source_id)
   )
 
   const chunkIdToSource = new Map<string, string>()
+  const chunkIdToType = new Map<string, string>()
   for (const c of boundedChunks) {
     chunkIdToSource.set(c.id, c.source_id)
+    chunkIdToType.set(c.id, c.source_type || "unknown")
+  }
+
+  // Analyze citation usage and quality
+  const sourceCitationStats = new Map<string, {
+    citations: number
+    direct_quotes: number
+    substantial_uses: number
+    references: number
+    total_chunks: number
+    type: string
+  }>()
+
+  // Initialize stats for all sources
+  for (const sourceId of requiredSources) {
+    const sourceType = Array.from(chunkIdToType.entries()).find(([chunkId]) =>
+      chunkIdToSource.get(chunkId) === sourceId
+    )?.[1] || "unknown"
+
+    sourceCitationStats.set(sourceId, {
+      citations: 0,
+      direct_quotes: 0,
+      substantial_uses: 0,
+      references: 0,
+      total_chunks: boundedChunks.filter(c => c.source_id === sourceId).length,
+      type: sourceType
+    })
   }
 
   const citedSources = new Set<string>()
+  let totalCitations = 0
+  let rawQualityScore = 0
 
   for (const section of reasoningOutput.sections ?? []) {
     for (const p of section.paragraphs ?? []) {
-      for (const eid of p.evidence_ids ?? []) {
-        const sid = chunkIdToSource.get(eid)
-        if (sid) citedSources.add(sid)
+      for (const citation of p.citations ?? []) {
+        const sid = chunkIdToSource.get(citation.evidence_id)
+        if (sid) {
+          citedSources.add(sid)
+          const stats = sourceCitationStats.get(sid)!
+          stats.citations++
+
+          // Score citation quality
+          switch (citation.usage_type) {
+            case "direct":
+              stats.direct_quotes++
+              rawQualityScore += 3 // Highest quality - direct quotes
+              break
+            case "substantial":
+              stats.substantial_uses++
+              rawQualityScore += 2 // Good quality - substantial use
+              break
+            case "reference":
+              stats.references++
+              rawQualityScore += 1 // Basic quality - general reference
+              break
+          }
+          totalCitations++
+        }
       }
     }
   }
 
+  // Calculate coverage quality metrics
   const missingSources = [...requiredSources].filter(
     sid => !citedSources.has(sid)
   )
+
+  // Source type balance scoring
+  const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution', 'case'])
+  let primaryLawCoverage = 0
+  let totalPrimaryLawSources = 0
+
+  for (const [sourceId, stats] of sourceCitationStats) {
+    if (primaryLawTypes.has(stats.type)) {
+      totalPrimaryLawSources++
+      if (citedSources.has(sourceId)) {
+        primaryLawCoverage++
+      }
+    }
+  }
+
+  // Overall quality score (0-100)
+  const coverageRatio = citedSources.size / requiredSources.size
+  const primaryLawRatio = totalPrimaryLawSources > 0 ? primaryLawCoverage / totalPrimaryLawSources : 1
+  const citationDensity = totalCitations / (reasoningOutput.sections?.length || 1)
+
+  const finalQualityScore = Math.min(100, Math.round(
+    (coverageRatio * 40) + // 40% weight on coverage
+    (primaryLawRatio * 30) + // 30% weight on primary law coverage
+    (Math.min(citationDensity / 10, 1) * 20) + // 20% weight on citation density (max 10 citations per section)
+    (totalCitations > 0 ? Math.min(rawQualityScore / totalCitations, 2) * 10 : 0) // 10% weight on citation quality (direct quotes preferred)
+  ))
+
+  const coverageDetails = {
+    source_stats: Array.from(sourceCitationStats.entries()).map(([sourceId, stats]) => ({
+      source_id: sourceId,
+      type: stats.type,
+      total_chunks: stats.total_chunks,
+      citations: stats.citations,
+      direct_quotes: stats.direct_quotes,
+      substantial_uses: stats.substantial_uses,
+      references: stats.references,
+      citation_rate: stats.total_chunks > 0 ? stats.citations / stats.total_chunks : 0
+    })),
+    primary_law_coverage: `${primaryLawCoverage}/${totalPrimaryLawSources}`,
+    citation_density: citationDensity.toFixed(2),
+    quality_breakdown: {
+      coverage_score: Math.round(coverageRatio * 40),
+      primary_law_score: Math.round(primaryLawRatio * 30),
+      density_score: Math.round(Math.min(citationDensity / 10, 1) * 20),
+      quality_score_component: Math.round(totalCitations > 0 ? Math.min(rawQualityScore / totalCitations, 2) * 10 : 0)
+    }
+  }
 
   if (missingSources.length > 0) {
     log(
@@ -190,6 +414,8 @@ function checkSourceCoverage(
         missing_source_ids: missingSources,
         required_count: requiredSources.size,
         used_count: citedSources.size,
+        quality_score: finalQualityScore,
+        coverage_details: coverageDetails
       },
       "WARN"
     )
@@ -199,11 +425,15 @@ function checkSourceCoverage(
       required_count: requiredSources.size,
       used_count: citedSources.size,
       missing_source_ids: missingSources,
+      quality_score: finalQualityScore,
+      coverage_details: coverageDetails
     }
   }
 
-  log(runId, "VALIDATION_ALL_SOURCES_USED", {
+  log(runId, "VALIDATION_COMPREHENSIVE_COVERAGE", {
     source_count: requiredSources.size,
+        quality_score: finalQualityScore,
+        coverage_details: coverageDetails
   })
 
   return {
@@ -211,6 +441,8 @@ function checkSourceCoverage(
     required_count: requiredSources.size,
     used_count: citedSources.size,
     missing_source_ids: [],
+        quality_score: finalQualityScore,
+        coverage_details: coverageDetails
   }
 }
 
@@ -338,7 +570,7 @@ export async function POST(req: Request) {
         source_details: sources?.map(s => ({ id: s.id, type: s.type, title: s.title }))
       })
 
-      /* ================= ENHANCED CHUNK SELECTION WITH RE-RANKING ================= */
+      /* ================= ARGUMENT-AWARE CHUNK SELECTION ================= */
 
       // Map source IDs to their types
       const sourceIdToType = new Map<string, string>()
@@ -346,14 +578,18 @@ export async function POST(req: Request) {
         sourceIdToType.set(source.id, source.type)
       }
 
-      // Score and re-rank chunks using multiple factors
+      // First pass: Analyze citation patterns and argument coherence
+      const citationPatterns = analyzeCitationPatterns(rawChunks ?? [])
+      const argumentGroups = identifyArgumentGroups(rawChunks ?? [], citationPatterns)
+
+      // Score and re-rank chunks using multiple factors including argument coherence
       const scoredChunks = (rawChunks ?? []).map((c: any) => {
         const text = c.text ?? ""
         const sourceType = sourceIdToType.get(c.source_id) || "other"
-        
+
         // Base similarity score (from vector search)
         const similarityScore = c.similarity || 0
-        
+
         // Source type priority - PRIMARY LAW SOURCES get highest priority
         const sourceTypePriority: Record<string, number> = {
           // Primary Law Sources (Highest Priority - Critical for legal arguments)
@@ -380,23 +616,44 @@ export async function POST(req: Request) {
           other: 0.75,
         }
         const typeMultiplier = sourceTypePriority[sourceType] || 0.75
-        
+
         // Length bonus (prefer substantial chunks, but not too long)
         const lengthScore = Math.min(1.0, Math.max(0.7, text.length / 500))
-        
+
         // Keyword matching bonus (simple term frequency)
         const queryTerms = query_text.toLowerCase().split(/\W+/).filter(t => t.length > 3)
         const textLower = text.toLowerCase()
         const keywordMatches = queryTerms.filter(term => textLower.includes(term)).length
         const keywordBonus = Math.min(0.15, (keywordMatches / Math.max(1, queryTerms.length)) * 0.15)
-        
+
         // Position bonus (prefer chunks from earlier pages - often more important)
         const pageBonus = Math.max(0.9, 1.0 - (c.page_number || 0) / 100)
-        
+
+        // Argument coherence bonus - boost chunks that are part of coherent argument groups
+        let argumentCoherenceBonus = 0
+        for (const [groupId, chunkIds] of argumentGroups.entries()) {
+          if (chunkIds.includes(c.id)) {
+            // Boost chunks in larger argument groups
+            const groupSize = chunkIds.length
+            argumentCoherenceBonus = Math.min(0.2, groupSize * 0.05) // Up to 20% bonus for large coherent groups
+
+            // Additional boost if this is a central chunk in the group
+            const chunkIndex = chunkIds.indexOf(c.id)
+            if (chunkIndex >= 0 && chunkIndex < chunkIds.length / 2) {
+              argumentCoherenceBonus += 0.05 // Early chunks in arguments often more important
+            }
+            break
+          }
+        }
+
+        // Citation pattern bonus
+        const patterns = citationPatterns.get(c.id) || []
+        const citationBonus = patterns.length * 0.02 // Small bonus for each citation pattern
+
         // Combined score
-        const finalScore = 
-          similarityScore * typeMultiplier * lengthScore * pageBonus + keywordBonus
-        
+        const finalScore =
+          similarityScore * typeMultiplier * lengthScore * pageBonus + keywordBonus + argumentCoherenceBonus + citationBonus
+
         return {
           ...c,
           content: text,
@@ -404,6 +661,8 @@ export async function POST(req: Request) {
           score: finalScore,
           similarity: similarityScore,
           keyword_matches: keywordMatches,
+          argument_coherence_bonus: argumentCoherenceBonus,
+          citation_bonus: citationBonus,
         }
       })
 
@@ -411,20 +670,25 @@ export async function POST(req: Request) {
       scoredChunks.sort((a: any, b: any) => b.score - a.score)
 
       log(runId, "CHUNK_SCORING", {
+        argument_groups_identified: argumentGroups.size.toString(),
+        citation_patterns_found: Array.from(citationPatterns.values()).flat().length.toString(),
         top_scores: scoredChunks.slice(0, 10).map((c: any) => ({
           score: c.score.toFixed(3),
           similarity: c.similarity?.toFixed(3),
           source_type: c.source_type,
           keyword_matches: c.keyword_matches,
+          argument_coherence: c.argument_coherence_bonus?.toFixed(3),
+          citation_patterns: citationPatterns.get(c.id)?.length || 0,
         })),
       })
 
-      // Select chunks with STRONG diversity enforcement
+      // Select chunks with ARGUMENT-AWARE diversity enforcement
       let usedChars = 0
       const boundedChunks: any[] = []
       const sourceChunkCounts = new Map<string, number>() // Track chunks per source
       const selectedSourceIds = new Set<string>()
       const selectedSourceTypes = new Set<string>()
+      const selectedArgumentGroups = new Set<string>() // Track selected argument groups
       
       // Group chunks by source for balanced selection
       const chunksBySource = new Map<string, typeof scoredChunks>()
@@ -473,32 +737,65 @@ export async function POST(req: Request) {
         sourcesByType.get(sourceType)!.push({ sourceId, chunks: sortedChunks })
       }
 
-      // PRIORITY 1: Add chunks from primary law sources, ensuring diversity across different sources
+      // PRIORITY 1: Add chunks from primary law sources, prioritizing complete argument groups
       // These are critical for legal arguments and must be well-represented
       for (const [sourceType, sources] of sourcesByType.entries()) {
         if (primaryLawTypes.has(sourceType) && sources.length > 0) {
           // Sort sources by their best chunk score to prioritize quality sources
           sources.sort((a, b) => (b.chunks[0]?.score || 0) - (a.chunks[0]?.score || 0))
-          
-          // For each primary law source, add 1-2 chunks (ensuring diversity across sources)
+
           for (const { sourceId, chunks } of sources) {
             const currentCount = sourceChunkCounts.get(sourceId) || 0
             if (currentCount >= hardMaxPerSource) continue
-            
-            // Add 1-2 best chunks from this source
-            const targetChunks = Math.min(2, chunks.length)
-            for (let i = 0; i < targetChunks; i++) {
-              const chunk = chunks[i]
-              const text = chunk.content
-              
-              if (usedChars + text.length <= MAX_EVIDENCE_CHARS && 
-                  currentCount < hardMaxPerSource &&
-                  !boundedChunks.some(c => c.id === chunk.id)) {
-                boundedChunks.push(chunk)
-                usedChars += text.length
-                sourceChunkCounts.set(sourceId, currentCount + 1)
-                selectedSourceIds.add(sourceId)
-                selectedSourceTypes.add(sourceType)
+
+            // First, try to add complete argument groups from this source
+            let groupAdded = false
+            for (const [groupId, chunkIds] of argumentGroups.entries()) {
+              if (groupId.startsWith(`${sourceId}_arg_`) && !selectedArgumentGroups.has(groupId)) {
+                const groupChunks = chunkIds
+                  .map((id: string) => chunks.find((c: any) => c.id === id))
+                  .filter((c: any) => c !== undefined)
+
+                if (groupChunks.length >= 2) { // Only consider groups with multiple chunks
+                  const groupTextLength = groupChunks.reduce((sum, c) => sum + (c.content?.length || 0), 0)
+
+                  if (usedChars + groupTextLength <= MAX_EVIDENCE_CHARS &&
+                      currentCount + groupChunks.length <= hardMaxPerSource) {
+                    // Add the entire argument group
+                    for (const chunk of groupChunks) {
+                      if (!boundedChunks.some(c => c.id === chunk.id)) {
+                        boundedChunks.push(chunk)
+                        usedChars += chunk.content?.length || 0
+                        sourceChunkCounts.set(sourceId, (sourceChunkCounts.get(sourceId) || 0) + 1)
+                        selectedSourceIds.add(sourceId)
+                        selectedSourceTypes.add(sourceType)
+                      }
+                    }
+                    selectedArgumentGroups.add(groupId)
+                    groupAdded = true
+                    break // Move to next source
+                  }
+                }
+              }
+            }
+
+            // If no complete group was added, fall back to individual chunks
+            if (!groupAdded) {
+              // Add 1-2 best chunks from this source
+              const targetChunks = Math.min(2, chunks.length)
+              for (let i = 0; i < targetChunks; i++) {
+                const chunk = chunks[i]
+                const text = chunk.content
+
+                if (usedChars + text.length <= MAX_EVIDENCE_CHARS &&
+                    currentCount < hardMaxPerSource &&
+                    !boundedChunks.some(c => c.id === chunk.id)) {
+                  boundedChunks.push(chunk)
+                  usedChars += text.length
+                  sourceChunkCounts.set(sourceId, currentCount + 1)
+                  selectedSourceIds.add(sourceId)
+                  selectedSourceTypes.add(sourceType)
+                }
               }
             }
           }
@@ -967,7 +1264,7 @@ export async function POST(req: Request) {
         }
       }
 
-      /* ================= BEST-EFFORT SOURCE COVERAGE ================= */
+      /* ================= COMPREHENSIVE SOURCE COVERAGE & QUALITY ================= */
 
       const source_coverage = checkSourceCoverage(
         boundedChunks,
@@ -991,6 +1288,8 @@ export async function POST(req: Request) {
         reasoning_output: reasoningOutput,
         evidence_index: evidenceIndex,
         source_coverage,
+        citation_quality_score: source_coverage.quality_score,
+        coverage_analysis: source_coverage.coverage_details,
       })
 
     } finally {

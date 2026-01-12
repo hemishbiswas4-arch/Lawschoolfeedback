@@ -248,7 +248,8 @@ export default function SynthesizePage() {
 
   /* ================= UI STATES ================= */
 
-  if (loading || synthesizing) {
+  // Show loading state until synthesis is complete
+  if (loading || synthesizing || !synthesis) {
     return (
       <div style={{ padding: "80px", textAlign: "center" }}>
         <div style={{ fontSize: "16px", marginBottom: "12px" }}>
@@ -266,7 +267,8 @@ export default function SynthesizePage() {
     )
   }
 
-  if (error && !synthesis) {
+  // Show error state only if we have no synthesis AND an error occurred
+  if (error) {
     return (
       <div style={{ padding: "80px", color: "#b91c1c" }}>
         <h2>Unable to Synthesize Approaches</h2>
@@ -289,10 +291,6 @@ export default function SynthesizePage() {
         </Link>
       </div>
     )
-  }
-
-  if (!synthesis) {
-    return <div style={{ padding: "80px" }}>No synthesis available.</div>
   }
 
   /* ================= MAIN RENDER ================= */

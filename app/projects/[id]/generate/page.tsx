@@ -59,6 +59,9 @@ export default function GenerateProjectPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedApproach, setSelectedApproach] = useState<any>(null)
   const [copySuccess, setCopySuccess] = useState(false)
+  const [citationQualityScore, setCitationQualityScore] = useState<number | null>(null)
+  const [coverageAnalysis, setCoverageAnalysis] = useState<any>(null)
+  const [copyWithCitations, setCopyWithCitations] = useState(false)
 
   useEffect(() => {
     if (!projectId || !queryText) {
@@ -115,6 +118,8 @@ export default function GenerateProjectPage() {
 
         setReasoning(json.reasoning_output)
         setEvidenceIndex(json.evidence_index)
+        setCitationQualityScore(json.citation_quality_score || null)
+        setCoverageAnalysis(json.coverage_analysis || null)
         
         // Fetch source titles for all source IDs in evidence index
         const sourceIds = new Set<string>()
@@ -169,13 +174,12 @@ export default function GenerateProjectPage() {
     return <div style={{ padding: "80px" }}>No output available.</div>
   }
 
-  /* ================= COPY FUNCTION ================= */
-  
-  const copyCleanText = async () => {
+  /* ================= COPY FUNCTIONS ================= */
+
+  const copyText = async (includeCitations: boolean = false) => {
     if (!reasoning) return
-    
-    // Format clean text without extraneous elements
-    const cleanText = reasoning.sections
+
+    const text = reasoning.sections
       .map(section => {
         const sectionTitle = section.title
         const paragraphs = section.paragraphs
@@ -184,16 +188,16 @@ export default function GenerateProjectPage() {
         return `${sectionTitle}\n\n${paragraphs}`
       })
       .join("\n\n")
-    
+
     try {
-      await navigator.clipboard.writeText(cleanText)
+      await navigator.clipboard.writeText(text)
       setCopySuccess(true)
       setTimeout(() => setCopySuccess(false), 2000)
     } catch (err) {
       console.error("Failed to copy:", err)
       // Fallback: select text in a textarea
       const textarea = document.createElement("textarea")
-      textarea.value = cleanText
+      textarea.value = text
       textarea.style.position = "fixed"
       textarea.style.opacity = "0"
       document.body.appendChild(textarea)
@@ -229,22 +233,24 @@ export default function GenerateProjectPage() {
           <h1 style={{ fontSize: "26px", fontWeight: 700, margin: 0 }}>
             Generated Research Project
           </h1>
-          <button
-            onClick={copyCleanText}
-            style={{
-              padding: "8px 16px",
-              background: copySuccess ? "#10b981" : "#111",
-              color: "#fff",
-              border: "none",
-              borderRadius: "6px",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: "pointer",
-              transition: "background 0.2s",
-            }}
-          >
-            {copySuccess ? "✓ Copied!" : "Copy Clean Text"}
-          </button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={() => copyText(false)}
+              style={{
+                padding: "8px 16px",
+                background: copySuccess && !copyWithCitations ? "#10b981" : "#6b7280",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+                transition: "background 0.2s",
+              }}
+            >
+              {copySuccess && !copyWithCitations ? "✓ Copied!" : "Copy Text"}
+            </button>
+          </div>
         </div>
 
         <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "32px" }}>
@@ -272,6 +278,36 @@ export default function GenerateProjectPage() {
               <span style={{ marginLeft: "12px", color: "#6b7280" }}>
                 · Structure: {selectedApproach.structure_type}
               </span>
+            )}
+          </div>
+        )}
+
+        {citationQualityScore !== null && (
+          <div
+            style={{
+              padding: "12px 16px",
+              background: citationQualityScore >= 80 ? "#f0fdf4" : citationQualityScore >= 60 ? "#fefce8" : "#fef2f2",
+              border: `1px solid ${citationQualityScore >= 80 ? "#bbf7d0" : citationQualityScore >= 60 ? "#fde047" : "#fecaca"}`,
+              borderRadius: "8px",
+              marginBottom: "24px",
+              fontSize: "13px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+              <strong>Citation Quality Score:</strong>
+              <span style={{
+                fontSize: "16px",
+                fontWeight: "bold",
+                color: citationQualityScore >= 80 ? "#16a34a" : citationQualityScore >= 60 ? "#ca8a04" : "#dc2626"
+              }}>
+                {citationQualityScore}/100
+              </span>
+            </div>
+            {coverageAnalysis && (
+              <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>
+                Primary Law Coverage: {coverageAnalysis.primary_law_coverage || "N/A"} •
+                Citations per Section: {coverageAnalysis.citation_density || "N/A"}
+              </div>
             )}
           </div>
         )}

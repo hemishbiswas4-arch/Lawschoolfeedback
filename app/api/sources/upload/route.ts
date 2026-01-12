@@ -123,8 +123,8 @@ async function embedBatchWithRetry(texts: string[], maxRetries = 3): Promise<num
 
 async function embedChunksParallel(
   chunks: Array<{ text: string; index: number }>,
-  concurrency = 5,
-  batchSize = 8 // Cohere supports up to 96, but use smaller batches for reliability
+  concurrency = 10,
+  batchSize = 50 // Cohere supports up to 96, increased for better throughput
 ): Promise<Map<number, number[]>> {
   const results = new Map<number, number[]>()
   const errors = new Map<number, Error>()
@@ -289,7 +289,7 @@ export async function POST(req: NextRequest) {
         let globalChunkIndex = 0
         let globalCharCursor = 0
 
-        // Collect all chunks first
+        // Collect all chunks first - process pages in parallel for better performance
         const allChunks: Array<{
           text: string
           pageNum: number
@@ -300,48 +300,67 @@ export async function POST(req: NextRequest) {
           chunkIndex: number
         }> = []
 
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          const page = await pdf.getPage(pageNum)
-          const viewport = page.getViewport({ scale: 1 })
-          const textContent = await page.getTextContent()
+        // Process pages in parallel batches of 5 for memory efficiency
+        const PAGE_BATCH_SIZE = 5
+        for (let pageStart = 1; pageStart <= pdf.numPages; pageStart += PAGE_BATCH_SIZE) {
+          const pageEnd = Math.min(pageStart + PAGE_BATCH_SIZE - 1, pdf.numPages)
+          const pagePromises = []
 
-          const paragraphs = normalizeParagraphs(
-            textContent.items,
-            viewport.width,
-            viewport.height
-          )
+          for (let pageNum = pageStart; pageNum <= pageEnd; pageNum++) {
+            pagePromises.push(
+              pdf.getPage(pageNum).then(async (page: any) => {
+                const viewport = page.getViewport({ scale: 1 })
+                const textContent = await page.getTextContent()
 
-          const chunks = contextualChunkParagraphs(paragraphs)
+                const paragraphs = normalizeParagraphs(
+                  textContent.items,
+                  viewport.width,
+                  viewport.height
+                )
 
-          for (const chunk of chunks) {
-            const text = chunk.text.trim()
-            if (!text || text.length < 10) continue // Skip very short chunks
+                const chunks = contextualChunkParagraphs(paragraphs)
 
-            const charStart = globalCharCursor
-            const charEnd = globalCharCursor + text.length
-            globalCharCursor = charEnd
+                return { pageNum, chunks }
+              })
+            )
+          }
 
-            allChunks.push({
-              text,
-              pageNum,
-              paragraphIndex: chunk.paragraph_index,
-              rects: chunk.rects,
-              charStart,
-              charEnd,
-              chunkIndex: globalChunkIndex++,
-            })
+          const pageResults = await Promise.all(pagePromises)
+
+          // Process results in page order
+          pageResults.sort((a, b) => a.pageNum - b.pageNum)
+
+          for (const { pageNum, chunks } of pageResults) {
+            for (const chunk of chunks) {
+              const text = chunk.text.trim()
+              if (!text || text.length < 10) continue // Skip very short chunks
+
+              const charStart = globalCharCursor
+              const charEnd = globalCharCursor + text.length
+              globalCharCursor = charEnd
+
+              allChunks.push({
+                text,
+                pageNum,
+                paragraphIndex: chunk.paragraph_index,
+                rects: chunk.rects,
+                charStart,
+                charEnd,
+                chunkIndex: globalChunkIndex++,
+              })
+            }
           }
         }
 
         /* ================= BATCH EMBED ALL CHUNKS IN PARALLEL ================= */
 
-        console.log(`Embedding ${allChunks.length} chunks in parallel...`)
+        console.log(`Processing ${allChunks.length} chunks (larger chunks = fewer embeddings)...`)
         const chunksForEmbedding = allChunks.map((c, idx) => ({
           text: c.text,
           index: idx,
         }))
 
-        const embeddingMap = await embedChunksParallel(chunksForEmbedding, 5, 10)
+        const embeddingMap = await embedChunksParallel(chunksForEmbedding)
 
         /* ================= BATCH INSERT ALL CHUNKS ================= */
 
@@ -369,8 +388,8 @@ export async function POST(req: NextRequest) {
           })
           .filter((c): c is NonNullable<typeof c> => c !== null)
 
-        // Insert in batches of 100 to avoid payload size limits
-        const BATCH_SIZE = 100
+        // Insert in batches of 500 to avoid payload size limits
+        const BATCH_SIZE = 500
         for (let i = 0; i < chunksToInsert.length; i += BATCH_SIZE) {
           const batch = chunksToInsert.slice(i, i + BATCH_SIZE)
           const { error: insertError } = await supabaseAdmin
@@ -488,13 +507,61 @@ function normalizeParagraphs(
   return paras
 }
 
-/* ================= IMPROVED CONTEXTUAL CHUNKING ================= */
+/* ================= SEMANTIC CHUNKING WITH LEGAL REASONING PRESERVATION ================= */
+
+function detectLegalReasoningPatterns(text: string): string[] {
+  const patterns: string[] = []
+  const lowerText = text.toLowerCase()
+
+  // IRAC and similar structures
+  if (/\b(issue|question|problem)\b.*?\b(is|are|was|were)\b/i.test(text)) {
+    patterns.push("issue_statement")
+  }
+  if (/\b(rule|law|standard|test|principle)\b.*?\b(is|are|requires|provides|states)\b/i.test(text)) {
+    patterns.push("rule_statement")
+  }
+  if (/\b(application|analysis|applying|appraisal)\b.*?\b(to|of)\b/i.test(text)) {
+    patterns.push("application_analysis")
+  }
+  if (/\b(conclusion|result|outcome|therefore|thus|hence|accordingly)\b/i.test(text)) {
+    patterns.push("conclusion")
+  }
+
+  // Legal argument connectors
+  if (/\b(moreover|furthermore|additionally|in addition)\b/i.test(text)) {
+    patterns.push("argument_extension")
+  }
+  if (/\b(however|nevertheless|notwithstanding|despite|although)\b/i.test(text)) {
+    patterns.push("counter_argument")
+  }
+  if (/\b(therefore|consequently|thus|hence|accordingly|as a result)\b/i.test(text)) {
+    patterns.push("logical_conclusion")
+  }
+
+  // Legal definitions and exceptions
+  if (/\b(means|shall mean|is defined as|definition)\b/i.test(text)) {
+    patterns.push("definition")
+  }
+  if (/\b(except|unless|provided that|notwithstanding|subject to)\b/i.test(text)) {
+    patterns.push("exception_qualifier")
+  }
+
+  // Citation and authority patterns
+  if (/\b(see|see also|cf|compare|contra)\b/i.test(text)) {
+    patterns.push("citation_reference")
+  }
+  if (/\b(pursuant to|in accordance with|under|per)\b/i.test(text)) {
+    patterns.push("authority_reference")
+  }
+
+  return patterns
+}
 
 function contextualChunkParagraphs(paragraphs: Paragraph[]) {
-  const MAX_CHARS = 1000 // Slightly increased for better context
-  const MIN_CHARS = 200 // Minimum chunk size
-  const OVERLAP_CHARS = 150 // Overlap between chunks for better retrieval
-  const MAX_CHUNK_CHARS = 1200 // Hard limit
+  const MAX_CHARS = 1500 // Increased for better context and fewer chunks
+  const MIN_CHARS = 300 // Increased minimum for more substantial chunks
+  const OVERLAP_CHARS = 200 // Increased overlap for better retrieval
+  const MAX_CHUNK_CHARS = 1800 // Hard limit increased proportionally
 
   const chunks: {
     text: string
@@ -535,11 +602,21 @@ function contextualChunkParagraphs(paragraphs: Paragraph[]) {
     // Force break on citations if buffer is substantial
     const shouldBreakOnCitation = hasCitation && bufferText.length >= MIN_CHARS * 1.5
 
+    // Enhanced break detection: break before major legal reasoning shifts
+    const bufferPatterns = bufferText ? detectLegalReasoningPatterns(bufferText) : []
+    const paraPatterns = detectLegalReasoningPatterns(paraText)
+    const reasoningShift = paraPatterns.some((pattern: string) =>
+      ['issue_statement', 'rule_statement', 'conclusion', 'definition'].includes(pattern) &&
+      !bufferPatterns.some(bp => bp === pattern) &&
+      bufferText.length >= MIN_CHARS
+    )
+
     if (
       candidate.length > MAX_CHARS ||
       (topicBreak && bufferText.length >= MIN_CHARS) ||
       shouldBreakOnHeading ||
       shouldBreakOnCitation ||
+      reasoningShift ||
       candidate.length > MAX_CHUNK_CHARS
     ) {
       // Save current chunk
@@ -702,7 +779,7 @@ function isSemanticallyContinuous(a: string, b: string) {
   // Higher threshold for continuity (more strict)
   if (overlapRatio > 0.25) return true
 
-  // Noun overlap analysis
+  // Noun overlap analysis (keeping original NLP logic for quality)
   try {
     const na = nlp(prev).nouns().out("array") as string[]
     const nb = nlp(next).nouns().out("array") as string[]
@@ -713,7 +790,7 @@ function isSemanticallyContinuous(a: string, b: string) {
       for (const n of nb) {
         if (nounSet.has(n.toLowerCase())) nounOverlap++
       }
-      
+
       // If significant noun overlap, likely continuous
       if (nounOverlap / Math.max(na.length, nb.length) > 0.3) {
         return true

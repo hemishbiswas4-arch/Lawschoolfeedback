@@ -13,44 +13,54 @@ import { useParams, useRouter } from "next/navigation"
  */
 const SOURCE_CATEGORIES: {
   label: string
-  options: { value: string; label: string }[]
+  description: string
+  recommendation: string
+  options: { value: string; label: string; description?: string }[]
 }[] = [
   {
     label: "Primary Law",
+    description: "Official legal sources that establish or interpret the law",
+    recommendation: "Best for comprehensive legal research - include these first",
     options: [
-      { value: "case", label: "Case" },
-      { value: "statute", label: "Statute" },
-      { value: "regulation", label: "Regulation" },
-      { value: "constitution", label: "Constitution" },
-      { value: "treaty", label: "Treaty" },
+      { value: "case", label: "Case Law", description: "Court decisions and judgments" },
+      { value: "statute", label: "Statute", description: "Legislation passed by parliament" },
+      { value: "regulation", label: "Regulation", description: "Rules made under statutory authority" },
+      { value: "constitution", label: "Constitution", description: "Foundational legal documents" },
+      { value: "treaty", label: "Treaty", description: "International agreements" },
     ],
   },
   {
     label: "Academic / Secondary",
+    description: "Scholarly analysis and interpretation of legal principles",
+    recommendation: "Essential for understanding context and scholarly debate",
     options: [
-      { value: "journal_article", label: "Journal Article" },
-      { value: "book", label: "Book" },
-      { value: "commentary", label: "Commentary / Textbook" },
-      { value: "working_paper", label: "Working Paper" },
-      { value: "thesis", label: "Thesis / Dissertation" },
+      { value: "journal_article", label: "Journal Article", description: "Peer-reviewed legal scholarship" },
+      { value: "book", label: "Book", description: "Comprehensive legal treatises" },
+      { value: "commentary", label: "Commentary / Textbook", description: "Explanatory legal texts" },
+      { value: "working_paper", label: "Working Paper", description: "Preliminary scholarly work" },
+      { value: "thesis", label: "Thesis / Dissertation", description: "Academic research papers" },
     ],
   },
   {
     label: "Policy / Institutional",
+    description: "Government and institutional documents and reports",
+    recommendation: "Important for policy context and institutional perspectives",
     options: [
-      { value: "committee_report", label: "Committee Report" },
-      { value: "law_commission_report", label: "Law Commission Report" },
-      { value: "white_paper", label: "White Paper" },
-      { value: "government_report", label: "Government Report" },
+      { value: "committee_report", label: "Committee Report", description: "Parliamentary committee findings" },
+      { value: "law_commission_report", label: "Law Commission Report", description: "Official law reform recommendations" },
+      { value: "white_paper", label: "White Paper", description: "Government policy proposals" },
+      { value: "government_report", label: "Government Report", description: "Official government publications" },
     ],
   },
   {
     label: "Digital / Informal",
+    description: "Contemporary sources from digital and informal channels",
+    recommendation: "Use sparingly for current developments and practical insights",
     options: [
-      { value: "blog_post", label: "Blog Post" },
-      { value: "news_article", label: "News Article" },
-      { value: "website", label: "Website" },
-      { value: "other", label: "Other" },
+      { value: "blog_post", label: "Blog Post", description: "Expert commentary and analysis" },
+      { value: "news_article", label: "News Article", description: "Media coverage of legal issues" },
+      { value: "website", label: "Website", description: "Online legal resources and guides" },
+      { value: "other", label: "Other", description: "Any other relevant source type" },
     ],
   },
 ]
@@ -90,6 +100,8 @@ export default function ProjectPage() {
   const [selectedFiles, setSelectedFiles] = useState<Array<{ file: File; id: string }>>([])
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [showSourceGuidance, setShowSourceGuidance] = useState(false)
 
   /* ================= LOAD PROJECT + SOURCES ================= */
 
@@ -133,12 +145,48 @@ export default function ProjectPage() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     const pdfFiles = files.filter(f => f.type === "application/pdf")
-    
+
     if (files.length !== pdfFiles.length) {
       alert("Only PDF files are supported. Non-PDF files were ignored.")
     }
 
-    const newFiles = pdfFiles.map(file => ({
+    // Validate file sizes (50MB limit per file)
+    const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+    const validFiles = []
+    const oversizedFiles = []
+    const invalidFiles = []
+
+    for (const file of pdfFiles) {
+      if (file.size > MAX_FILE_SIZE) {
+        oversizedFiles.push(file.name)
+      } else if (file.size < 100) {
+        // Basic check for empty or corrupted files
+        invalidFiles.push(file.name)
+      } else {
+        validFiles.push(file)
+      }
+    }
+
+    if (invalidFiles.length > 0) {
+      alert(`The following files appear to be empty or corrupted and were skipped:\n${invalidFiles.join('\n')}`)
+    }
+
+    if (oversizedFiles.length > 0) {
+      alert(`The following files exceed the 50MB limit and were skipped:\n${oversizedFiles.join('\n')}`)
+    }
+
+    // Check total file count limit (20 files max)
+    const currentCount = selectedFiles.length
+    const newValidCount = validFiles.length
+    const maxTotalFiles = 20
+
+    if (currentCount + newValidCount > maxTotalFiles) {
+      const allowedCount = maxTotalFiles - currentCount
+      validFiles.splice(allowedCount)
+      alert(`Maximum ${maxTotalFiles} files allowed. Only the first ${allowedCount} valid files were added.`)
+    }
+
+    const newFiles = validFiles.map(file => ({
       file,
       id: `${Date.now()}-${Math.random()}`,
     }))
@@ -148,6 +196,78 @@ export default function ProjectPage() {
 
   const removeSelectedFile = (fileId: string) => {
     setSelectedFiles(prev => prev.filter(f => f.id !== fileId))
+  }
+
+  /* ================= DRAG AND DROP ================= */
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!uploading) setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    if (uploading) return
+
+    const files = Array.from(e.dataTransfer.files || [])
+    const pdfFiles = files.filter(f => f.type === "application/pdf")
+
+    if (files.length !== pdfFiles.length) {
+      alert("Only PDF files are supported. Non-PDF files were ignored.")
+    }
+
+    // Validate file sizes (50MB limit per file)
+    const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+    const validFiles = []
+    const oversizedFiles = []
+    const invalidFiles = []
+
+    for (const file of pdfFiles) {
+      if (file.size > MAX_FILE_SIZE) {
+        oversizedFiles.push(file.name)
+      } else if (file.size < 100) {
+        // Basic check for empty or corrupted files
+        invalidFiles.push(file.name)
+      } else {
+        validFiles.push(file)
+      }
+    }
+
+    if (invalidFiles.length > 0) {
+      alert(`The following files appear to be empty or corrupted and were skipped:\n${invalidFiles.join('\n')}`)
+    }
+
+    if (oversizedFiles.length > 0) {
+      alert(`The following files exceed the 50MB limit and were skipped:\n${oversizedFiles.join('\n')}`)
+    }
+
+    // Check total file count limit (20 files max)
+    const currentCount = selectedFiles.length
+    const newValidCount = validFiles.length
+    const maxTotalFiles = 20
+
+    if (currentCount + newValidCount > maxTotalFiles) {
+      const allowedCount = maxTotalFiles - currentCount
+      validFiles.splice(allowedCount)
+      alert(`Maximum ${maxTotalFiles} files allowed. Only the first ${allowedCount} valid files were added.`)
+    }
+
+    const newFiles = validFiles.map(file => ({
+      file,
+      id: `${Date.now()}-${Math.random()}`,
+    }))
+
+    setSelectedFiles(prev => [...prev, ...newFiles])
   }
 
   /* ================= BATCH UPLOAD SOURCES (OPTIMIZED) ================= */
@@ -342,93 +462,361 @@ export default function ProjectPage() {
   if (!project) return null
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f9fafb", fontFamily: "sans-serif" }}>
-      <div style={{ maxWidth: "900px", margin: "0 auto", padding: "40px 20px" }}>
-        <h1 style={{ fontSize: "28px", fontWeight: 700 }}>
-          {project.title}
-        </h1>
+    <div style={{
+      minHeight: "100vh",
+      background: "#f9fafb",
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      padding: "40px 20px"
+    }}>
+      <div style={{
+        maxWidth: "1100px",
+        margin: "0 auto"
+      }}>
+        {/* Enhanced Header */}
+        <div style={{
+          background: "#fff",
+          border: "1px solid #e5e7eb",
+          borderRadius: "16px",
+          padding: "32px",
+          marginBottom: "32px",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "16px",
+            flexDirection: "column",
+            gap: "12px"
+          }}>
+            <h1 style={{
+              fontSize: "32px",
+              fontWeight: 700,
+              color: "#111",
+              margin: 0
+            }}>
+              {project.title}
+            </h1>
+            <div style={{
+              padding: "6px 12px",
+              background: "#ecfdf5",
+              border: "1px solid #d1fae5",
+              borderRadius: "20px",
+              fontSize: "12px",
+              fontWeight: 600,
+              color: "#065f46",
+              whiteSpace: "nowrap"
+            }}>
+              {sources.length} source{sources.length !== 1 ? 's' : ''} uploaded
+            </div>
+          </div>
 
-        <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "32px" }}>
-          Project workspace
-        </p>
+          <p style={{ fontSize: "15px", color: "#6b7280", margin: "8px 0 24px 0", lineHeight: 1.5 }}>
+            Build your research foundation by uploading legal sources. Start with primary law for comprehensive analysis.
+          </p>
+
+          {/* Quick Stats */}
+          <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>{sources.length}</div>
+              <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>Total Sources</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>
+                {sources.filter(s => !s.optimistic).length}
+              </div>
+              <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>Processed</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "24px", fontWeight: 700, color: "#2563eb" }}>
+                {selectedFiles.length}
+              </div>
+              <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>Ready to Upload</div>
+            </div>
+          </div>
+        </div>
+
+        {/* RECOMMENDATIONS SECTION */}
+        {sources.length === 0 && (
+          <div style={{
+            background: "#ffffff",
+            border: "1px solid #e5e7eb",
+            borderRadius: "8px",
+            padding: "24px",
+            marginBottom: "24px"
+          }}>
+            <h2 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "12px", color: "#111" }}>
+              Getting Started
+            </h2>
+            <p style={{ fontSize: "14px", marginBottom: "16px", color: "#374151", lineHeight: 1.5 }}>
+              For optimal research results, begin by uploading primary legal sources such as cases and statutes,
+              followed by academic commentary and policy documents.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div style={{ padding: "12px", background: "#f9fafb", borderRadius: "6px", border: "1px solid #f3f4f6" }}>
+                <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", color: "#111" }}>Primary Law</h3>
+                <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Cases, statutes, regulations - the foundation of legal research</p>
+              </div>
+              <div style={{ padding: "12px", background: "#f9fafb", borderRadius: "6px", border: "1px solid #f3f4f6" }}>
+                <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", color: "#111" }}>Academic Sources</h3>
+                <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Journal articles and commentaries for deeper analysis</p>
+              </div>
+              <div style={{ padding: "12px", background: "#f9fafb", borderRadius: "6px", border: "1px solid #f3f4f6" }}>
+                <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", color: "#111" }}>Policy Documents</h3>
+                <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Government reports and institutional perspectives</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ADD SOURCE */}
         <div
           style={{
             background: "#fff",
             border: "1px solid #e5e7eb",
-            borderRadius: "12px",
-            padding: "20px",
-            marginBottom: "24px",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+            borderRadius: "16px",
+            padding: "32px",
+            marginBottom: "32px",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
           }}
         >
-          <h3 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px" }}>
-            Add Sources (PDF)
-          </h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+            <h3 style={{ fontSize: "18px", fontWeight: 600, color: "#111", margin: 0 }}>
+              Upload Sources
+            </h3>
+            <button
+              onClick={() => setShowSourceGuidance(!showSourceGuidance)}
+              style={{
+                padding: "6px 12px",
+                background: "none",
+                border: "1px solid #d1d5db",
+                borderRadius: "6px",
+                fontSize: "12px",
+                color: "#6b7280",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "#9ca3af"
+                e.currentTarget.style.color = "#374151"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#d1d5db"
+                e.currentTarget.style.color = "#6b7280"
+              }}
+            >
+              {showSourceGuidance ? "Hide Guide" : "Source Guide"}
+            </button>
+          </div>
 
-          <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+          {/* Source Type Selection with Guidance */}
+          <div style={{ marginBottom: "24px" }}>
+            <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+              Source Type
+            </label>
             <select
               value={sourceType}
               onChange={e => setSourceType(e.target.value)}
               disabled={uploading}
               style={{
-                padding: "8px",
-                borderRadius: "6px",
+                width: "100%",
+                padding: "12px",
+                borderRadius: "8px",
                 border: "1px solid #d1d5db",
-                fontSize: "13px",
-                minWidth: "180px",
+                fontSize: "14px",
+                background: "#fff",
+                marginBottom: "8px",
               }}
             >
               {SOURCE_CATEGORIES.map(cat => (
-                <optgroup key={cat.label} label={cat.label}>
+                <optgroup key={cat.label} label={`${cat.label} - ${cat.description}`}>
                   {cat.options.map(opt => (
                     <option key={opt.value} value={opt.value}>
-                      {opt.label}
+                      {opt.label}{opt.description ? ` - ${opt.description}` : ''}
                     </option>
                   ))}
                 </optgroup>
               ))}
             </select>
 
+            {/* Source Type Guidance */}
+            {(() => {
+              const selectedCategory = SOURCE_CATEGORIES.find(cat =>
+                cat.options.some(opt => opt.value === sourceType)
+              )
+              const selectedOption = selectedCategory?.options.find(opt => opt.value === sourceType)
+
+              return selectedCategory && (
+                <div style={{
+                  padding: "12px",
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "8px",
+                  marginBottom: "16px"
+                }}>
+                  <div style={{ fontSize: "13px", color: "#475569", marginBottom: "4px" }}>
+                    <strong>{selectedCategory.label}</strong> • {selectedOption?.label}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", lineHeight: 1.4 }}>
+                    {selectedOption?.description}
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+
+          {/* Source Guidance Panel */}
+          {showSourceGuidance && (
+            <div style={{
+              marginTop: "16px",
+              padding: "20px",
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "12px"
+            }}>
+              <h4 style={{ fontSize: "16px", fontWeight: 600, color: "#374151", marginBottom: "16px" }}>
+                Source Type Guide
+              </h4>
+              <div style={{ display: "grid", gap: "16px", gridTemplateColumns: "1fr" }}>
+                {SOURCE_CATEGORIES.map(cat => (
+                  <div key={cat.label} style={{
+                    padding: "16px",
+                    background: "#fff",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "8px"
+                  }}>
+                    <h5 style={{ fontSize: "14px", fontWeight: 600, color: "#111", marginBottom: "4px" }}>
+                      {cat.label}
+                    </h5>
+                    <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "8px" }}>
+                      {cat.description}
+                    </p>
+                    <p style={{ fontSize: "12px", color: "#374151", fontWeight: 500, marginBottom: "8px", fontStyle: "italic" }}>
+                      {cat.recommendation}
+                    </p>
+                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                      <strong>Types:</strong> {cat.options.map(opt => opt.label).join(", ")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Source Title */}
+          <div style={{ marginBottom: "24px" }}>
+            <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+              Title {selectedFiles.length > 1 && "(Base title for multiple files)"}
+            </label>
             <input
               value={sourceTitle}
               onChange={e => setSourceTitle(e.target.value)}
-              placeholder="Source title (or base title for multiple files)"
+              placeholder={selectedFiles.length > 1 ? "Base title (e.g., 'Supreme Court Cases')" : "Source title"}
               disabled={uploading}
               style={{
-                flex: 1,
-                padding: "8px",
-                borderRadius: "6px",
+                width: "100%",
+                padding: "12px",
+                borderRadius: "8px",
                 border: "1px solid #d1d5db",
-                fontSize: "13px",
+                fontSize: "14px",
+                background: "#fff",
               }}
             />
           </div>
 
-          <input
-            type="file"
-            accept="application/pdf"
-            multiple
-            disabled={uploading}
-            onChange={handleFileSelect}
+          {/* DRAG AND DROP UPLOAD AREA */}
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
             style={{
-              width: "100%",
-              padding: "8px",
-              borderRadius: "6px",
-              border: "1px solid #d1d5db",
-              fontSize: "13px",
-              marginBottom: "12px",
+              border: `2px dashed ${isDragOver ? '#2563eb' : '#cbd5e1'}`,
+              borderRadius: "12px",
+              padding: "40px 24px",
+              textAlign: "center",
+              background: isDragOver ? "#eff6ff" : "#fafbfc",
+              transition: "all 0.2s ease",
+              cursor: uploading ? "not-allowed" : "pointer",
+              marginBottom: "16px",
+              position: "relative"
             }}
-          />
+          >
+            <input
+              type="file"
+              accept="application/pdf"
+              multiple
+              disabled={uploading}
+              onChange={handleFileSelect}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                opacity: 0,
+                cursor: uploading ? "not-allowed" : "pointer",
+              }}
+            />
+
+            <div style={{ fontSize: "16px", fontWeight: 600, color: "#374151", marginBottom: "8px", textAlign: "center" }}>
+              {isDragOver ? "Drop PDF files here" : "Drag & drop PDF files here"}
+            </div>
+
+            <div style={{ fontSize: "14px", color: "#6b7280", marginBottom: "16px", textAlign: "center" }}>
+              or click to browse files
+            </div>
+
+            <div style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: "24px",
+              fontSize: "12px",
+              color: "#6b7280"
+            }}>
+              <span>Maximum 50MB per file</span>
+              <span>Up to 20 files</span>
+              <span>PDF format only</span>
+            </div>
+          </div>
 
           {/* SELECTED FILES */}
           {selectedFiles.length > 0 && (
-            <div style={{ marginBottom: "12px" }}>
-              <div style={{ fontSize: "12px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
-                Selected Files ({selectedFiles.length})
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "16px"
+              }}>
+                <h4 style={{ fontSize: "16px", fontWeight: 600, color: "#374151", margin: 0 }}>
+                  Selected Files ({selectedFiles.length})
+                </h4>
+                <button
+                  onClick={() => setSelectedFiles([])}
+                  disabled={uploading}
+                  style={{
+                    padding: "6px 12px",
+                    background: "none",
+                    border: "1px solid #ef4444",
+                    borderRadius: "6px",
+                    color: "#ef4444",
+                    fontSize: "12px",
+                    cursor: uploading ? "not-allowed" : "pointer",
+                    opacity: uploading ? 0.5 : 1,
+                    transition: "all 0.2s"
+                  }}
+                  onMouseEnter={(e) => !uploading && (e.currentTarget.style.background = "#fef2f2")}
+                  onMouseLeave={(e) => !uploading && (e.currentTarget.style.background = "none")}
+                >
+                  Clear All
+                </button>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "1fr",
+                gap: "12px"
+              }}>
                 {selectedFiles.map(({ file, id }) => (
                   <div
                     key={id}
@@ -436,17 +824,26 @@ export default function ProjectPage() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      padding: "8px 10px",
-                      background: "#f9fafb",
-                      borderRadius: "6px",
-                      border: "1px solid #e5e7eb",
+                      padding: "12px",
+                      background: "#f8fafc",
+                      borderRadius: "8px",
+                      border: "1px solid #e2e8f0",
+                      boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)"
                     }}
                   >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "12px", fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div style={{ flex: 1, minWidth: 0, marginRight: "12px" }}>
+                      <div style={{
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        color: "#1e293b",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        marginBottom: "4px"
+                      }}>
                         {file.name}
                       </div>
-                      <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>
+                      <div style={{ fontSize: "11px", color: "#64748b" }}>
                         {(file.size / 1024 / 1024).toFixed(2)} MB
                       </div>
                     </div>
@@ -454,17 +851,21 @@ export default function ProjectPage() {
                       onClick={() => removeSelectedFile(id)}
                       disabled={uploading}
                       style={{
-                        marginLeft: "12px",
-                        padding: "4px 8px",
+                        padding: "6px",
                         background: "none",
                         border: "none",
-                        color: "#dc2626",
+                        color: "#ef4444",
                         cursor: uploading ? "not-allowed" : "pointer",
-                        fontSize: "12px",
-                        fontWeight: 500,
+                        fontSize: "16px",
+                        borderRadius: "4px",
+                        transition: "all 0.2s",
+                        opacity: uploading ? 0.5 : 1
                       }}
+                      onMouseEnter={(e) => !uploading && (e.currentTarget.style.background = "#fef2f2")}
+                      onMouseLeave={(e) => !uploading && (e.currentTarget.style.background = "none")}
+                      title="Remove file"
                     >
-                      Remove
+                      ×
                     </button>
                   </div>
                 ))}
@@ -474,59 +875,110 @@ export default function ProjectPage() {
 
           {/* UPLOAD PROGRESS */}
           {uploading && selectedFiles.length > 0 && (
-            <div style={{ marginBottom: "12px" }}>
-              {selectedFiles.map(({ file, id }) => {
-                const progress = uploadProgress[id] || 0
-                return (
-                  <div key={id} style={{ marginBottom: "8px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "11px", color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                        {file.name}
-                      </span>
-                      <span style={{ fontSize: "11px", color: "#6b7280", marginLeft: "8px" }}>
-                        {progress}%
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        height: "6px",
-                        background: "#e5e7eb",
-                        borderRadius: "3px",
-                        overflow: "hidden",
-                      }}
-                    >
+            <div style={{ marginBottom: "24px" }}>
+              <h4 style={{ fontSize: "16px", fontWeight: 600, color: "#374151", marginBottom: "16px" }}>
+                Upload Progress
+              </h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {selectedFiles.map(({ file, id }) => {
+                  const progress = uploadProgress[id] || 0
+                  return (
+                    <div key={id} style={{
+                      padding: "16px",
+                      background: "#f8fafc",
+                      borderRadius: "8px",
+                      border: "1px solid #e2e8f0"
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                        <span style={{
+                          fontSize: "13px",
+                          color: "#1e293b",
+                          fontWeight: 500,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          flex: 1
+                        }}>
+                          {file.name}
+                        </span>
+                        <span style={{ fontSize: "13px", color: "#2563eb", fontWeight: 600, marginLeft: "12px" }}>
+                          {progress}%
+                        </span>
+                      </div>
                       <div
                         style={{
-                          width: `${progress}%`,
-                          height: "100%",
-                          background: "#2563eb",
-                          transition: "width 0.3s ease",
+                          height: "8px",
+                          background: "#e2e8f0",
+                          borderRadius: "4px",
+                          overflow: "hidden",
                         }}
-                      />
+                      >
+                        <div
+                          style={{
+                            width: `${progress}%`,
+                            height: "100%",
+                            background: progress === 100 ? "#10b981" : "#2563eb",
+                            transition: "width 0.3s ease",
+                            borderRadius: "4px"
+                          }}
+                        />
+                      </div>
+                      {progress === 100 && (
+                        <div style={{
+                          fontSize: "11px",
+                          color: "#10b981",
+                          marginTop: "4px",
+                          fontWeight: 500
+                        }}>
+                          ✓ Complete
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           )}
 
+          {/* UPLOAD BUTTON */}
           <button
             onClick={handleBatchUpload}
             disabled={uploading || selectedFiles.length === 0 || !sourceTitle.trim()}
             style={{
               width: "100%",
-              padding: "10px 16px",
-              borderRadius: "8px",
+              padding: "16px",
+              borderRadius: "12px",
               background: uploading || selectedFiles.length === 0 || !sourceTitle.trim() ? "#9ca3af" : "#111",
               color: "#fff",
-              fontSize: "14px",
+              fontSize: "16px",
               fontWeight: 600,
               border: "none",
               cursor: uploading || selectedFiles.length === 0 || !sourceTitle.trim() ? "not-allowed" : "pointer",
-              transition: "background 0.2s",
+              transition: "all 0.2s",
+              boxShadow: uploading || selectedFiles.length === 0 || !sourceTitle.trim() ? "none" : "0 4px 12px rgba(0, 0, 0, 0.15)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px"
+            }}
+            onMouseEnter={(e) => {
+              if (!(uploading || selectedFiles.length === 0 || !sourceTitle.trim())) {
+                e.currentTarget.style.transform = "translateY(-1px)"
+                e.currentTarget.style.boxShadow = "0 6px 16px rgba(0, 0, 0, 0.2)"
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!(uploading || selectedFiles.length === 0 || !sourceTitle.trim())) {
+                e.currentTarget.style.transform = "translateY(0)"
+                e.currentTarget.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.15)"
+              }
             }}
           >
-            {uploading ? `Uploading ${selectedFiles.length} file(s)...` : `Upload ${selectedFiles.length || ""} file${selectedFiles.length !== 1 ? "s" : ""}`}
+            {uploading ? (
+              `Uploading ${selectedFiles.length} file${selectedFiles.length !== 1 ? "s" : ""}...`
+            ) : (
+              `Upload ${selectedFiles.length || ""} file${selectedFiles.length !== 1 ? "s" : ""}`
+            )}
           </button>
         </div>
 
@@ -535,111 +987,198 @@ export default function ProjectPage() {
           style={{
             background: "#fff",
             border: "1px solid #e5e7eb",
-            borderRadius: "12px",
-            padding: "20px",
+            borderRadius: "16px",
+            padding: "32px",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
           }}
         >
-          <h3 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "12px" }}>
-            Sources
-          </h3>
+          <div style={{ marginBottom: "24px" }}>
+            <h3 style={{ fontSize: "18px", fontWeight: 600, color: "#111", margin: 0 }}>
+              Sources ({sources.length})
+            </h3>
+          </div>
 
           {sources.length === 0 ? (
-            <p style={{ fontSize: "14px", color: "#6b7280" }}>
-              No sources added yet.
-            </p>
+            <div style={{
+              textAlign: "center",
+              padding: "32px 24px",
+              color: "#6b7280"
+            }}>
+              <h4 style={{ fontSize: "16px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+                No sources yet
+              </h4>
+              <p style={{ fontSize: "14px", lineHeight: 1.5 }}>
+                Upload legal documents above to begin your research.
+                Start with primary law sources such as cases and statutes.
+              </p>
+            </div>
           ) : (
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {sources.map(s => (
-                <li
-                  key={s.id}
-                  style={{
-                    padding: "12px",
-                    borderBottom: "1px solid #f3f4f6",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    transition: "background 0.2s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!s.optimistic) e.currentTarget.style.background = "#f9fafb"
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent"
-                  }}
-                >
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {sources.map(s => {
+                // Get source category
+                const getSourceCategory = (type: string) => {
+                  for (const cat of SOURCE_CATEGORIES) {
+                    if (cat.options.some(opt => opt.value === type)) {
+                      return cat
+                    }
+                  }
+                  return null
+                }
+
+                const category = getSourceCategory(s.type)
+
+                return (
                   <div
+                    key={s.id}
+                    style={{
+                      padding: "20px",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "12px",
+                      background: "#fff",
+                      boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+                      transition: "all 0.2s",
+                      cursor: s.optimistic || deletingSourceId ? "default" : "pointer",
+                      opacity: s.optimistic ? 0.7 : 1,
+                    }}
                     onClick={() =>
                       !s.optimistic && !deletingSourceId && router.push(`/projects/${id}/sources/${s.id}`)
                     }
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      cursor: s.optimistic || deletingSourceId ? "default" : "pointer",
-                      opacity: s.optimistic ? 0.6 : 1,
+                    onMouseEnter={(e) => {
+                      if (!s.optimistic && deletingSourceId !== s.id) {
+                        e.currentTarget.style.transform = "translateY(-2px)"
+                        e.currentTarget.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.15)"
+                        e.currentTarget.style.borderColor = "#d1d5db"
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!s.optimistic && deletingSourceId !== s.id) {
+                        e.currentTarget.style.transform = "translateY(0)"
+                        e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.1)"
+                        e.currentTarget.style.borderColor = "#e5e7eb"
+                      }
                     }}
                   >
-                    <div style={{ fontSize: "14px", fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {s.title}
-                    </div>
-                    <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "2px" }}>
-                      {s.type.toUpperCase()}
-                      {s.optimistic && " (processing…)"}
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <h4 style={{
+                          fontSize: "16px",
+                          fontWeight: 600,
+                          color: "#111",
+                          margin: "0 0 8px 0",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap"
+                        }}>
+                          {s.title}
+                        </h4>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          <span style={{
+                            padding: "2px 6px",
+                            background: "#f3f4f6",
+                            color: "#374151",
+                            borderRadius: "4px",
+                            fontSize: "11px",
+                            fontWeight: 500,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em"
+                          }}>
+                            {s.type.replace(/_/g, ' ')}
+                          </span>
+
+                          {s.optimistic && (
+                            <span style={{
+                              padding: "2px 6px",
+                              background: "#f3f4f6",
+                              color: "#6b7280",
+                              borderRadius: "4px",
+                              fontSize: "11px",
+                              fontWeight: 500
+                            }}>
+                              Processing
+                            </span>
+                          )}
+
+                          <span style={{
+                            fontSize: "12px",
+                            color: "#6b7280"
+                          }}>
+                            {new Date(s.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      {!s.optimistic && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteSource(s.id, s.title)
+                          }}
+                          disabled={deletingSourceId === s.id}
+                          style={{
+                            padding: "8px",
+                            background: deletingSourceId === s.id ? "#f3f4f6" : "none",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "8px",
+                            color: deletingSourceId === s.id ? "#9ca3af" : "#ef4444",
+                            cursor: deletingSourceId === s.id ? "not-allowed" : "pointer",
+                            fontSize: "14px",
+                            transition: "all 0.2s",
+                            opacity: deletingSourceId === s.id ? 0.6 : 1
+                          }}
+                          onMouseEnter={(e) => {
+                            if (deletingSourceId !== s.id) {
+                              e.currentTarget.style.background = "#fef2f2"
+                              e.currentTarget.style.borderColor = "#ef4444"
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (deletingSourceId !== s.id) {
+                              e.currentTarget.style.background = "none"
+                              e.currentTarget.style.borderColor = "#e5e7eb"
+                            }
+                          }}
+                          title="Delete source"
+                        >
+                          {deletingSourceId === s.id ? "🗑️" : "🗑️"}
+                        </button>
+                      )}
                     </div>
                   </div>
-                  {!s.optimistic && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteSource(s.id, s.title)
-                      }}
-                      disabled={deletingSourceId === s.id}
-                      style={{
-                        marginLeft: "12px",
-                        padding: "6px 10px",
-                        background: deletingSourceId === s.id ? "#f3f4f6" : "none",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "6px",
-                        color: deletingSourceId === s.id ? "#9ca3af" : "#dc2626",
-                        cursor: deletingSourceId === s.id ? "not-allowed" : "pointer",
-                        fontSize: "12px",
-                        fontWeight: 500,
-                        transition: "all 0.2s",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (deletingSourceId !== s.id) {
-                          e.currentTarget.style.background = "#fef2f2"
-                          e.currentTarget.style.borderColor = "#dc2626"
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (deletingSourceId !== s.id) {
-                          e.currentTarget.style.background = "none"
-                          e.currentTarget.style.borderColor = "#e5e7eb"
-                        }
-                      }}
-                    >
-                      {deletingSourceId === s.id ? "Deleting..." : "Delete"}
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+                )
+              })}
+            </div>
           )}
 
-          <button
-            onClick={() => router.push(`/projects/${id}/query`)}
-            style={{
+          {sources.length > 0 && (
+            <div             style={{
               marginTop: "24px",
-              padding: "10px 16px",
-              borderRadius: "8px",
-              background: "#111",
-              color: "#fff",
-              fontSize: "14px",
-              fontWeight: 500,
-            }}
-          >
-            Continue to Research
-          </button>
+              padding: "16px",
+              background: "#f9fafb",
+              border: "1px solid #e5e7eb",
+              borderRadius: "6px",
+              textAlign: "center"
+            }}>
+              <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "12px" }}>
+                Ready to analyze your sources? Click the button above to start your research.
+              </p>
+              <button
+                onClick={() => router.push(`/projects/${id}/query`)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: "4px",
+                  background: "#111",
+                  color: "#fff",
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  border: "none",
+                  cursor: "pointer"
+                }}
+              >
+                Continue to Research
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

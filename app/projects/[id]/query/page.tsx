@@ -128,128 +128,195 @@ export default function QueryPage() {
   const totalChunks = retrievedChunks.length
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f9fafb", padding: "40px 20px" }}>
-      <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+    <div style={{
+      minHeight: "100vh",
+      background: "#f9fafb",
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      padding: "40px 20px"
+    }}>
+      <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
         {/* HEADER */}
-        <div style={{ marginBottom: "32px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-            <h1 style={{ fontSize: "28px", fontWeight: 700, color: "#111" }}>
+        <div style={{
+          background: "#ffffff",
+          border: "1px solid #e5e7eb",
+          borderRadius: "16px",
+          padding: "32px",
+          marginBottom: "32px",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+            <h1 style={{ fontSize: "32px", fontWeight: 700, color: "#111", margin: 0 }}>
               Research Query
             </h1>
             <Link
               href={`/projects/${projectId}`}
               style={{
-                padding: "8px 12px",
+                padding: "8px 16px",
                 borderRadius: "6px",
-                background: "#fff",
+                background: "#ffffff",
                 color: "#374151",
-                fontSize: "13px",
+                fontSize: "14px",
                 fontWeight: 500,
                 textDecoration: "none",
                 border: "1px solid #e5e7eb",
                 display: "flex",
                 alignItems: "center",
                 gap: "6px",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#f9fafb"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#ffffff"
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 12H5M12 19l-7-7 7-7"/>
-              </svg>
-              Back to Project
+              ← Back to Project
             </Link>
           </div>
-          <p style={{ fontSize: "14px", color: "#6b7280" }}>
-            Enter your research question to retrieve relevant evidence from uploaded sources.
+          <p style={{ fontSize: "15px", color: "#6b7280", marginBottom: "24px", lineHeight: 1.5 }}>
+            Query your uploaded legal sources to retrieve relevant evidence for your research.
           </p>
+
+          {/* PROMPT GUIDANCE */}
+          <div style={{
+            background: "#f8fafc",
+            border: "1px solid #e2e8f0",
+            borderRadius: "12px",
+            padding: "24px",
+            marginBottom: "24px"
+          }}>
+            <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#111", marginBottom: "16px" }}>
+              Writing Effective Research Queries
+            </h2>
+            <div style={{ display: "grid", gap: "16px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
+                  Be Specific and Precise
+                </h3>
+                <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
+                  Focus on particular legal issues, doctrines, or case outcomes rather than broad topics.
+                  Include specific terminology and jurisdiction when relevant.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
+                  Use Legal Terminology
+                </h3>
+                <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
+                  Employ the precise legal vocabulary from your field. The system searches for semantic meaning,
+                  so using terms like "tortious interference," "promissory estoppel," or "strict scrutiny" will yield better results.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
+                  Include Contextual Details
+                </h3>
+                <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
+                  Mention relevant facts, procedural postures, or analytical frameworks to help identify the most
+                  pertinent passages from your sources.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
+                  Examples of Effective Queries
+                </h3>
+                <div style={{ fontSize: "13px", color: "#6b7280", lineHeight: 1.6 }}>
+                  <div style={{ marginBottom: "8px" }}>
+                    <strong>Good:</strong> "How have courts applied the Chevron deference doctrine in environmental regulation cases since 2010?"
+                  </div>
+                  <div style={{ marginBottom: "8px" }}>
+                    <strong>Good:</strong> "What are the requirements for proving fraudulent inducement in contract formation under New York law?"
+                  </div>
+                  <div>
+                    <strong>Less effective:</strong> "Tell me about contracts" (too broad)
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* QUERY INPUT CARD */}
         <div
           style={{
-            background: "#fff",
-            borderRadius: "12px",
+            background: "#ffffff",
             border: "1px solid #e5e7eb",
-            padding: "24px",
-            marginBottom: "24px",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+            borderRadius: "16px",
+            padding: "32px",
+            marginBottom: "32px",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
           }}
         >
-          <label
-            style={{
-              display: "block",
-              fontSize: "13px",
-              fontWeight: 600,
-              color: "#374151",
-              marginBottom: "8px",
-            }}
-          >
-            Research Question
-          </label>
-          <textarea
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            rows={5}
-            placeholder="e.g., How have digital platform markets changed relevant market definition in competition law?"
-            style={{
-              width: "100%",
-              padding: "12px",
-              borderRadius: "8px",
-              border: "1px solid #d1d5db",
-              fontSize: "14px",
-              fontFamily: "inherit",
-              resize: "vertical",
-              marginBottom: "16px",
-              transition: "border-color 0.2s",
-            }}
-            onFocus={(e) => {
-              e.target.style.borderColor = "#2563eb"
-              e.target.style.outline = "none"
-            }}
-            onBlur={(e) => {
-              e.target.style.borderColor = "#d1d5db"
-            }}
-          />
+          <div style={{ marginBottom: "24px" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "16px",
+                fontWeight: 600,
+                color: "#374151",
+                marginBottom: "12px",
+              }}
+            >
+              Research Question
+            </label>
+            <textarea
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              rows={6}
+              placeholder="e.g., How have courts applied the Chevron deference doctrine in environmental regulation cases since 2010?"
+              style={{
+                width: "100%",
+                padding: "16px",
+                borderRadius: "8px",
+                border: "1px solid #d1d5db",
+                fontSize: "15px",
+                fontFamily: "inherit",
+                resize: "vertical",
+                lineHeight: 1.5,
+                transition: "border-color 0.2s",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "#6b7280"
+                e.target.style.outline = "none"
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "#d1d5db"
+              }}
+            />
+          </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
             <button
               onClick={runRetrieval}
               disabled={loading || !query.trim()}
               style={{
-                padding: "10px 20px",
+                padding: "12px 24px",
                 borderRadius: "8px",
                 background: loading || !query.trim() ? "#9ca3af" : "#111",
                 color: "#fff",
-                fontSize: "14px",
+                fontSize: "15px",
                 fontWeight: 600,
                 border: "none",
                 cursor: loading || !query.trim() ? "not-allowed" : "pointer",
                 transition: "background 0.2s",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
               }}
             >
-              {loading ? (
-                <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: "spin 1s linear infinite" }}>
-                    <circle cx="12" cy="12" r="10" opacity="0.25"/>
-                    <path d="M12 2a10 10 0 0 1 10 10" opacity="0.75"/>
-                  </svg>
-                  Retrieving…
-                </>
-              ) : (
-                <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="11" cy="11" r="8"/>
-                    <path d="m21 21-4.35-4.35"/>
-                  </svg>
-                  Retrieve Evidence
-                </>
-              )}
+              {loading ? "Retrieving…" : "Retrieve Evidence"}
             </button>
 
             {totalChunks > 0 && (
-              <div style={{ fontSize: "13px", color: "#6b7280" }}>
+              <div style={{
+                fontSize: "14px",
+                color: "#6b7280",
+                padding: "8px 12px",
+                background: "#f9fafb",
+                borderRadius: "6px",
+                border: "1px solid #e5e7eb"
+              }}>
                 Found <strong style={{ color: "#111" }}>{totalChunks}</strong> relevant chunk{totalChunks !== 1 ? 's' : ''}
               </div>
             )}
@@ -261,49 +328,52 @@ export default function QueryPage() {
         {grouped.length > 0 && (
           <div>
             {/* RESULTS HEADER */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "20px",
-              }}
-            >
-              <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#111" }}>
-                Retrieved Evidence
-              </h2>
-              <Link
-                href={{
-                  pathname: `/projects/${projectId}/synthesize`,
-                  query: {
-                    query,
-                  },
-                }}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: "8px",
-                  background: "#111",
-                  color: "#fff",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  textDecoration: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  transition: "background 0.2s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#1f2937"
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#111"
-                }}
-              >
-                Continue to Argumentation Strategy
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M12 5l7 7-7 7"/>
-                </svg>
-              </Link>
+            <div style={{
+              background: "#ffffff",
+              border: "1px solid #e5e7eb",
+              borderRadius: "16px",
+              padding: "24px",
+              marginBottom: "24px",
+              boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+                <div>
+                  <h2 style={{ fontSize: "20px", fontWeight: 600, color: "#111", margin: 0 }}>
+                    Retrieved Evidence
+                  </h2>
+                  <p style={{ fontSize: "14px", color: "#6b7280", margin: "4px 0 0 0" }}>
+                    Review the most relevant passages from your sources
+                  </p>
+                </div>
+                <Link
+                  href={{
+                    pathname: `/projects/${projectId}/synthesize`,
+                    query: { query },
+                  }}
+                  style={{
+                    padding: "12px 24px",
+                    borderRadius: "8px",
+                    background: "#111",
+                    color: "#fff",
+                    fontSize: "15px",
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    transition: "background 0.2s",
+                    whiteSpace: "nowrap"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#374151"
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#111"
+                  }}
+                >
+                  Continue to Analysis →
+                </Link>
+              </div>
             </div>
 
             {/* SOURCE GROUPS */}
@@ -311,29 +381,36 @@ export default function QueryPage() {
               <div
                 key={sourceId}
                 style={{
-                  background: "#fff",
-                  borderRadius: "12px",
+                  background: "#ffffff",
+                  borderRadius: "16px",
                   border: "1px solid #e5e7eb",
                   overflow: "hidden",
-                  marginBottom: "20px",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                  marginBottom: "24px",
+                  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
                 }}
               >
                 <div
                   style={{
-                    background: "linear-gradient(to right, #f8fafc, #f1f5f9)",
-                    padding: "14px 18px",
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    color: "#111",
+                    background: "#f9fafb",
+                    padding: "20px 24px",
                     borderBottom: "1px solid #e5e7eb",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
                   }}
                 >
-                  <span>{sourceTitles[sourceId] ?? sourceId}</span>
-                  <span style={{ fontSize: "12px", fontWeight: 500, color: "#6b7280" }}>
+                  <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#111", margin: 0 }}>
+                    {sourceTitles[sourceId] ?? sourceId}
+                  </h3>
+                  <span style={{
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    color: "#6b7280",
+                    padding: "4px 8px",
+                    background: "#ffffff",
+                    borderRadius: "4px",
+                    border: "1px solid #e5e7eb"
+                  }}>
                     {chunks.length} chunk{chunks.length !== 1 ? 's' : ''}
                   </span>
                 </div>
@@ -343,10 +420,10 @@ export default function QueryPage() {
                     <div
                       key={chunk.id}
                       style={{
-                        padding: "18px",
+                        padding: "24px",
                         borderBottom:
                           index < chunks.length - 1
-                            ? "1px solid #f1f5f9"
+                            ? "1px solid #f3f4f6"
                             : "none",
                         transition: "background 0.2s",
                       }}
@@ -354,65 +431,60 @@ export default function QueryPage() {
                         e.currentTarget.style.background = "#f9fafb"
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "#fff"
+                        e.currentTarget.style.background = "#ffffff"
                       }}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "12px",
-                          marginBottom: "10px",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: "11px",
-                            fontWeight: 600,
-                            color: "#fff",
-                            background: "#6366f1",
-                            padding: "4px 8px",
-                            borderRadius: "4px",
-                          }}
-                        >
-                          Rank {index + 1}
+                      <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        marginBottom: "16px",
+                        flexWrap: "wrap"
+                      }}>
+                        <span style={{
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "#111",
+                          padding: "2px 8px",
+                          background: "#f3f4f6",
+                          borderRadius: "4px",
+                          border: "1px solid #e5e7eb"
+                        }}>
+                          #{index + 1}
                         </span>
+
                         {typeof chunk.similarity === "number" && (
-                          <span
-                            style={{
-                              fontSize: "11px",
-                              color: "#6b7280",
-                              background: "#f3f4f6",
-                              padding: "4px 8px",
-                              borderRadius: "4px",
-                            }}
-                          >
-                            Score: {chunk.similarity.toFixed(3)}
+                          <span style={{
+                            fontSize: "12px",
+                            color: "#6b7280",
+                            padding: "2px 8px",
+                            background: "#f9fafb",
+                            borderRadius: "4px",
+                            border: "1px solid #e5e7eb"
+                          }}>
+                            Relevance: {chunk.similarity.toFixed(3)}
                           </span>
                         )}
+
                         {chunk.page_number !== null && (
-                          <span
-                            style={{
-                              fontSize: "11px",
-                              color: "#6b7280",
-                              background: "#f3f4f6",
-                              padding: "4px 8px",
-                              borderRadius: "4px",
-                            }}
-                          >
+                          <span style={{
+                            fontSize: "12px",
+                            color: "#6b7280",
+                            padding: "2px 8px",
+                            background: "#f9fafb",
+                            borderRadius: "4px",
+                            border: "1px solid #e5e7eb"
+                          }}>
                             Page {chunk.page_number}
                           </span>
                         )}
                       </div>
 
-                      <div
-                        style={{
-                          fontSize: "14px",
-                          lineHeight: 1.7,
-                          color: "#374151",
-                        }}
-                      >
+                      <div style={{
+                        fontSize: "15px",
+                        lineHeight: 1.6,
+                        color: "#374151"
+                      }}>
                         {chunk.text}
                       </div>
                     </div>
@@ -421,61 +493,50 @@ export default function QueryPage() {
               </div>
             ))}
 
-            {/* QUICK ACTION BAR */}
-            <div
-              style={{
-                background: "#fff",
-                borderRadius: "12px",
-                border: "1px solid #e5e7eb",
-                padding: "20px",
-                marginTop: "24px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: "14px", fontWeight: 600, color: "#111", marginBottom: "4px" }}>
-                  Ready to proceed?
-                </div>
-                <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                  Review the evidence above, then continue to select your argumentation approach.
-                </div>
+            {/* CONTINUE SECTION */}
+            <div style={{
+              background: "#ffffff",
+              border: "1px solid #e5e7eb",
+              borderRadius: "16px",
+              padding: "32px",
+              marginTop: "32px",
+              boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
+            }}>
+              <div style={{ textAlign: "center" }}>
+                <h3 style={{ fontSize: "18px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>
+                  Analysis Phase
+                </h3>
+                <p style={{ fontSize: "15px", color: "#6b7280", marginBottom: "24px", lineHeight: 1.5 }}>
+                  Review the retrieved evidence above, then proceed to develop your legal analysis and argumentation strategy.
+                </p>
+                <Link
+                  href={{
+                    pathname: `/projects/${projectId}/synthesize`,
+                    query: { query },
+                  }}
+                  style={{
+                    padding: "14px 32px",
+                    borderRadius: "8px",
+                    background: "#111",
+                    color: "#fff",
+                    fontSize: "16px",
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    transition: "background 0.2s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#374151"
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#111"
+                  }}
+                >
+                  Continue to Analysis →
+                </Link>
               </div>
-              <Link
-                href={{
-                  pathname: `/projects/${projectId}/synthesize`,
-                  query: {
-                    query,
-                  },
-                }}
-                style={{
-                  padding: "12px 24px",
-                  borderRadius: "8px",
-                  background: "#111",
-                  color: "#fff",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  textDecoration: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  whiteSpace: "nowrap",
-                  transition: "background 0.2s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#1f2937"
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#111"
-                }}
-              >
-                Continue to Argumentation Strategy
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M12 5l7 7-7 7"/>
-                </svg>
-              </Link>
             </div>
           </div>
         )}
