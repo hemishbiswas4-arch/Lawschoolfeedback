@@ -74,6 +74,7 @@ export default function SynthesizePage() {
   const [synthesizing, setSynthesizing] = useState(false)
   const [synthesis, setSynthesis] = useState<SynthesizeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [loadedFromCache, setLoadedFromCache] = useState(false)
 
   const [selectedApproach, setSelectedApproach] = useState<SelectedApproach>({
     argumentation_line_id: null,
@@ -86,6 +87,9 @@ export default function SynthesizePage() {
   // Ref to prevent duplicate calls
   const synthesisInProgress = useRef(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Cache key for synthesis results
+  const synthesisCacheKey = projectId && queryText ? `synthesis_${projectId}_${queryText.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}` : null
 
   /* ================= LOAD SYNTHESIS ================= */
 
@@ -103,6 +107,37 @@ export default function SynthesizePage() {
     }
 
     const synthesize = async () => {
+      // Check for cached synthesis results first
+      if (typeof window !== "undefined" && synthesisCacheKey) {
+        const cachedSynthesis = sessionStorage.getItem(synthesisCacheKey)
+        if (cachedSynthesis) {
+          try {
+            const parsedSynthesis = JSON.parse(cachedSynthesis)
+            console.log(`Loaded synthesis from sessionStorage cache`)
+            setSynthesis(parsedSynthesis)
+            setLoadedFromCache(true)
+
+            // Set defaults from cached data
+            if (parsedSynthesis.recommended_structure) {
+              setSelectedApproach({
+                argumentation_line_id: null,
+                tone: parsedSynthesis.personalization_options.tone_options[0]?.value || "",
+                structure_type: parsedSynthesis.recommended_structure.type,
+                focus_areas: [],
+              })
+            }
+
+            setSynthesizing(false)
+            setLoading(false)
+            return
+          } catch (e) {
+            console.error("Failed to parse cached synthesis:", e)
+            // Remove corrupted cache
+            sessionStorage.removeItem(synthesisCacheKey)
+          }
+        }
+      }
+
       // Cancel any previous request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
@@ -175,12 +210,28 @@ export default function SynthesizePage() {
             throw new Error("Synthesis is currently busy with another request. Please try again in 5 minutes.")
           }
 
+          // Handle case where generation is in progress (should use cache instead)
+          if (res.status === 429 && errorText.includes("Generation is currently in progress")) {
+            throw new Error("Another user is currently generating content. Synthesis analysis is cached - please refresh the page if you need updated results.")
+          }
+
           throw new Error(`Synthesis failed: ${res.status} ${errorText}`)
         }
 
         const data = await res.json()
         console.log("Synthesis response received:", data)
         setSynthesis(data)
+        setLoadedFromCache(false)
+
+        // Cache the synthesis results in sessionStorage
+        if (typeof window !== "undefined" && synthesisCacheKey) {
+          try {
+            sessionStorage.setItem(synthesisCacheKey, JSON.stringify(data))
+            console.log(`Cached synthesis results in sessionStorage`)
+          } catch (e) {
+            console.warn("Failed to cache synthesis results:", e)
+          }
+        }
 
         // Set defaults
         if (data.recommended_structure) {
@@ -291,11 +342,25 @@ export default function SynthesizePage() {
   }
 
   // Show error state only if we have no synthesis AND an error occurred
-  if (error) {
+  if (error && !synthesis) {
+    const isGenerationBusyError = error.includes("Another user is currently generating content")
+
     return (
       <div style={{ padding: "80px", color: "#b91c1c" }}>
-        <h2>Unable to Synthesize Approaches</h2>
-        <p>{error}</p>
+        <h2>{isGenerationBusyError ? "Generation In Progress" : "Unable to Synthesize Approaches"}</h2>
+        <p style={{ fontSize: "16px", marginBottom: "16px" }}>{error}</p>
+        {isGenerationBusyError && (
+          <div style={{
+            background: "#fef3c7",
+            border: "1px solid #f59e0b",
+            borderRadius: "8px",
+            padding: "16px",
+            marginBottom: "24px",
+            color: "#92400e"
+          }}>
+            <strong>💡 Tip:</strong> Wait for generation to complete, then return to this page for fresh synthesis analysis. Your previous synthesis results are cached.
+          </div>
+        )}
         <Link
           href={`/projects/${projectId}/query?query=${encodeURIComponent(queryText || "")}`}
           style={{
@@ -327,6 +392,20 @@ export default function SynthesizePage() {
       <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "32px" }}>
         Query: <em>{queryText}</em>
       </p>
+
+      {loadedFromCache && (
+        <div style={{
+          padding: "8px 12px",
+          background: "#f0fdf4",
+          border: "1px solid #bbf7d0",
+          borderRadius: "6px",
+          marginBottom: "24px",
+          fontSize: "12px",
+          color: "#166534"
+        }}>
+          ✓ Analysis loaded from cache (for faster performance)
+        </div>
+      )}
 
       {/* ========== ARGUMENTATION LINES ========== */}
 
