@@ -169,6 +169,12 @@ export default function SynthesizePage() {
         if (!res.ok) {
           const errorText = await res.text()
           console.error("Synthesis API error:", res.status, errorText)
+
+          // Handle specific case where synthesis is busy
+          if (res.status === 429 && errorText.includes("Please try again in 5 minutes")) {
+            throw new Error("Synthesis is currently busy with another request. Please try again in 5 minutes.")
+          }
+
           throw new Error(`Synthesis failed: ${res.status} ${errorText}`)
         }
 
@@ -259,8 +265,25 @@ export default function SynthesizePage() {
           This may take a moment
         </div>
         {error && (
-          <div style={{ fontSize: "13px", color: "#b91c1c", marginTop: "16px", padding: "12px", background: "#fef2f2", borderRadius: "8px", maxWidth: "600px", margin: "16px auto 0" }}>
-            {error}
+          <div style={{ maxWidth: "600px", margin: "16px auto 0" }}>
+            <div style={{ fontSize: "13px", color: "#b91c1c", padding: "12px", background: "#fef2f2", borderRadius: "8px", marginBottom: "12px" }}>
+              {error}
+            </div>
+            <Link
+              href={`/projects/${projectId}/query?query=${encodeURIComponent(queryText || "")}`}
+              style={{
+                display: "inline-block",
+                padding: "10px 18px",
+                borderRadius: "8px",
+                background: "#111",
+                color: "#fff",
+                fontSize: "14px",
+                fontWeight: 500,
+                textDecoration: "none",
+              }}
+            >
+              Back to Query
+            </Link>
           </div>
         )}
       </div>

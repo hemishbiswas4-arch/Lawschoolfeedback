@@ -107,7 +107,14 @@ export default function GenerateProjectPage() {
         })
 
         if (!res.ok) {
-          throw new Error("Generation failed")
+          const errorText = await res.text()
+
+          // Handle specific case where generation is busy
+          if (res.status === 429 && errorText.includes("Please try again in 5 minutes")) {
+            throw new Error("Generation is currently busy with another request. Please try again in 5 minutes.")
+          }
+
+          throw new Error(`Generation failed: ${res.status} ${errorText}`)
         }
 
         const json = await res.json()
@@ -166,6 +173,40 @@ export default function GenerateProjectPage() {
       <div style={{ padding: "80px", color: "#b91c1c" }}>
         <h2>Unable to Generate Project</h2>
         <p>{error}</p>
+        <div style={{ marginTop: "20px" }}>
+          <a
+            href={`/projects/${projectId}/synthesize?query=${encodeURIComponent(queryText || "")}`}
+            style={{
+              display: "inline-block",
+              padding: "10px 18px",
+              borderRadius: "8px",
+              background: "#111",
+              color: "#fff",
+              fontSize: "14px",
+              fontWeight: 500,
+              textDecoration: "none",
+              marginRight: "12px",
+            }}
+          >
+            Back to Synthesis
+          </a>
+          <a
+            href={`/projects/${projectId}/query?query=${encodeURIComponent(queryText || "")}`}
+            style={{
+              display: "inline-block",
+              padding: "10px 18px",
+              borderRadius: "8px",
+              border: "1px solid #d1d5db",
+              background: "#fff",
+              color: "#374151",
+              fontSize: "14px",
+              fontWeight: 500,
+              textDecoration: "none",
+            }}
+          >
+            Back to Query
+          </a>
+        </div>
       </div>
     )
   }

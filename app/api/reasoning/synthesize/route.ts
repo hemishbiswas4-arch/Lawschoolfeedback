@@ -31,7 +31,9 @@ const GENERATION_INFERENCE_PROFILE_ARN =
 /* ================= SINGLE-FLIGHT LOCK ================= */
 
 let synthesisInFlight = false
+let synthesisStartTime: number | null = null
 const pendingSynthesisRequests = new Map<string, Promise<any>>()
+const SYNTHESIS_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 /* ================= UTILS ================= */
 
@@ -141,11 +143,13 @@ export async function POST(req: Request) {
 
     // Check single-flight lock
     if (synthesisInFlight) {
-      console.log(`SYNTHESIZE [${runId}] Another synthesis in progress, waiting...`)
-      // Wait a bit and check again
-      await sleep(1000)
+      const now = Date.now()
+      const elapsed = synthesisStartTime ? now - synthesisStartTime : 0
+
+      // Check if there's already a pending request for this exact query
       const retryPending = pendingSynthesisRequests.get(requestKey)
       if (retryPending) {
+        console.log(`SYNTHESIZE [${runId}] Deduplicating request, returning existing promise`)
         try {
           const result = await retryPending
           return NextResponse.json(result)
@@ -153,9 +157,24 @@ export async function POST(req: Request) {
           pendingSynthesisRequests.delete(requestKey)
         }
       }
+
+      // If synthesis has been running for more than 5 minutes, allow new requests
+      if (elapsed > SYNTHESIS_TIMEOUT_MS) {
+        console.log(`SYNTHESIZE [${runId}] Previous synthesis timed out (${elapsed}ms), allowing new request`)
+        synthesisInFlight = false
+        synthesisStartTime = null
+      } else {
+        // Return error message asking user to try again later
+        console.log(`SYNTHESIZE [${runId}] Synthesis busy (${elapsed}ms elapsed), returning error`)
+        return NextResponse.json(
+          { error: "Synthesis is currently in progress. Please try again in 5 minutes." },
+          { status: 429 }
+        )
+      }
     }
 
     synthesisInFlight = true
+    synthesisStartTime = Date.now()
 
     // Create promise for this request
     const synthesisPromise = (async (): Promise<SynthesizeOutput> => {
@@ -424,11 +443,13 @@ IMPORTANT:
       )
     } finally {
       synthesisInFlight = false
+      synthesisStartTime = null
       pendingSynthesisRequests.delete(requestKey)
     }
 
   } catch (err: any) {
     synthesisInFlight = false
+    synthesisStartTime = null
     console.error(`SYNTHESIZE [${runId}] ✗ fatal error:`, err)
     return NextResponse.json(
       { error: err?.message ?? "Internal error" },

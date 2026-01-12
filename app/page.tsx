@@ -123,12 +123,20 @@ export default function Home() {
         <div style={styles.logo}>
           <div style={styles.logoIcon}>P</div>
         </div>
-        <Link
-          href="/login"
-          style={{ fontSize: "14px", fontWeight: 500, color: "#6b7280" }}
-        >
-          Log in
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", gap: "24px" }}>
+          <Link
+            href="/feedback"
+            style={{ fontSize: "14px", fontWeight: 500, color: "#6b7280" }}
+          >
+            Feedback
+          </Link>
+          <Link
+            href="/login"
+            style={{ fontSize: "14px", fontWeight: 500, color: "#6b7280" }}
+          >
+            Log in
+          </Link>
+        </div>
       </nav>
 
       <main style={styles.main}>
@@ -153,6 +161,17 @@ export default function Home() {
             <div style={styles.meta}>
               <span style={styles.betaTag}>BETA v0.1</span>
               <span>Structured academic workflows</span>
+              <a
+                href="/admin/feedback"
+                style={{
+                  fontSize: "12px",
+                  color: "#9ca3af",
+                  textDecoration: "underline",
+                  marginLeft: "16px",
+                }}
+              >
+                Admin
+              </a>
             </div>
           </div>
 

@@ -34,6 +34,8 @@ const GENERATION_INFERENCE_PROFILE_ARN =
 /* ================= SINGLE-FLIGHT LOCK ================= */
 
 let generationInFlight = false
+let generationStartTime: number | null = null
+const GENERATION_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 /* ================= CONSTANTS ================= */
 
@@ -531,13 +533,26 @@ export async function POST(req: Request) {
     /* ================= SINGLE-FLIGHT ================= */
 
     if (generationInFlight) {
-      return NextResponse.json(
-        { error: "Generation already in progress" },
-        { status: 429 }
-      )
+      const now = Date.now()
+      const elapsed = generationStartTime ? now - generationStartTime : 0
+
+      // If generation has been running for more than 5 minutes, allow new requests
+      if (elapsed > GENERATION_TIMEOUT_MS) {
+        console.log(`GENERATION [${runId}] Previous generation timed out (${elapsed}ms), allowing new request`)
+        generationInFlight = false
+        generationStartTime = null
+      } else {
+        // Return error message asking user to try again later
+        console.log(`GENERATION [${runId}] Generation busy (${elapsed}ms elapsed), returning error`)
+        return NextResponse.json(
+          { error: "Generation is currently in progress. Please try again in 5 minutes." },
+          { status: 429 }
+        )
+      }
     }
 
     generationInFlight = true
+    generationStartTime = Date.now()
 
     try {
       /* ================= LOAD PROJECT & SOURCE CONTEXT ================= */
@@ -1294,11 +1309,13 @@ export async function POST(req: Request) {
 
     } finally {
       generationInFlight = false
+      generationStartTime = null
       log(runId, "LOCK_RELEASED")
     }
 
   } catch (err) {
     generationInFlight = false
+    generationStartTime = null
     log(runId, "FATAL_ERROR", err, "ERROR")
     return NextResponse.json(
       { error: "Internal error" },
