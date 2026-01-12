@@ -83,16 +83,6 @@ export default function Home() {
       textDecoration: "none",
       fontSize: "15px",
     },
-    secondaryBtn: {
-      background: "#fff",
-      border: "1px solid #e5e7eb",
-      color: "#374151",
-      padding: "12px 24px",
-      borderRadius: "8px",
-      fontWeight: 500,
-      textDecoration: "none",
-      fontSize: "15px",
-    },
     meta: {
       marginTop: "24px",
       fontSize: "13px",
@@ -145,41 +135,38 @@ export default function Home() {
         <div style={styles.grid}>
           <div>
             <h1 style={styles.h1}>
-              Law School <br />
-              Feedback <span style={{ color: "#9ca3af" }}>Reimagined.</span>
+              One Pipeline. <br />
+              Every Project.
             </h1>
 
             <p style={styles.subtext}>
-              A centralized platform for university work — moots, negotiation
-              plans, research papers, and drafts.
+              A unified workspace to create, structure, iterate, and manage
+              complex academic projects — from conception to final submission.
             </p>
 
             <div style={styles.buttonGroup}>
-<Link href="/login?next=/projects" style={styles.primaryBtn}>
-  Projects
-</Link>
-
-             <Link href="/login?next=/dashboard" style={styles.secondaryBtn}>
-                Feedback
+              <Link href="/login?next=/projects" style={styles.primaryBtn}>
+                Open Project Pipeline
               </Link>
             </div>
 
             <div style={styles.meta}>
               <span style={styles.betaTag}>BETA v0.1</span>
-              <span>University use only</span>
+              <span>Structured academic workflows</span>
             </div>
           </div>
 
           <div style={styles.card}>
             <p style={styles.cardText}>
-              This tool is designed to{" "}
+              The pipeline enables{" "}
               <span style={styles.highlight}>
-                reduce document sharing over email
+                structured project generation
               </span>
-              .<br />
+              , guided iteration, and source-aware drafting.
               <br />
-              Feedback is anchored directly to the PDF and categorised by work
-              type.
+              <br />
+              Projects move through defined stages — planning, development,
+              refinement — without fragmenting across tools or formats.
               <br />
               <br />
               <span
@@ -189,7 +176,7 @@ export default function Home() {
                   fontStyle: "italic",
                 }}
               >
-                The system is currently in active beta.
+                Designed for high-rigor academic work.
               </span>
             </p>
           </div>
