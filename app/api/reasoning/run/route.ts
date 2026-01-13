@@ -48,6 +48,8 @@ type ReasoningRunInput = {
   query_text: string
   mode?: "generate" | "retrieve"
   word_limit?: number
+  user_id?: string
+  user_email?: string
   approach?: {
     argumentation_line?: {
       id: string
@@ -456,13 +458,29 @@ export async function POST(req: Request) {
 
   try {
     const body = (await req.json()) as ReasoningRunInput
-    let { project_id, query_text, mode = "generate", word_limit, approach } = body
+    let { project_id, query_text, mode = "generate", word_limit, approach, user_id, user_email } = body
 
     if (!project_id || !query_text?.trim()) {
       return NextResponse.json(
         { error: "Missing project_id or query_text" },
         { status: 400 }
       )
+    }
+
+    // Log usage if user info is provided
+    if (user_id && user_email) {
+      try {
+        await supabase.rpc('increment_usage_log', {
+          p_user_id: user_id,
+          p_user_email: user_email,
+          p_feature: mode === "generate" ? "reasoning_generate" : "reasoning_retrieve",
+          p_project_id: project_id
+        })
+        log(runId, "USAGE_LOGGED", { user_id, user_email, feature: mode === "generate" ? "reasoning_generate" : "reasoning_retrieve" })
+      } catch (logError) {
+        log(runId, "USAGE_LOG_FAILED", { error: logError, user_id }, "WARN")
+        // Continue with processing even if logging fails
+      }
     }
 
     // Detect explicit word count requests in query (e.g., "5000 words", "up to 4000 words")

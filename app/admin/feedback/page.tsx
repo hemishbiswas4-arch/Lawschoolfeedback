@@ -23,6 +23,19 @@ type FeedbackStats = {
   averageRating: number
 }
 
+type UsageStats = {
+  totalUsers: number
+  totalUsage: number
+  featureUsage: Record<string, number>
+  userDetails: Array<{
+    user_id: string
+    user_email: string
+    total_usage: number
+    features_used: Record<string, number>
+    last_used_at: string
+  }>
+}
+
 type FeedbackResponse = {
   feedback: FeedbackItem[]
   total: number
@@ -44,6 +57,7 @@ export default function AdminFeedbackPage() {
 
   const [feedback, setFeedback] = useState<FeedbackItem[]>([])
   const [stats, setStats] = useState<FeedbackStats | null>(null)
+  const [usageStats, setUsageStats] = useState<UsageStats | null>(null)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -284,6 +298,7 @@ export default function AdminFeedbackPage() {
     if (storedAuth === 'true') {
       setIsAuthenticated(true)
       loadFeedback()
+      loadUsageStats()
     }
   }, [])
 
@@ -300,6 +315,7 @@ export default function AdminFeedbackPage() {
         setIsAuthenticated(true)
         localStorage.setItem('admin_authenticated', 'true')
         loadFeedback()
+        loadUsageStats()
       } else {
         setAuthError("Invalid password")
       }
@@ -342,6 +358,21 @@ export default function AdminFeedbackPage() {
       setError("Network error")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadUsageStats = async () => {
+    try {
+      const response = await fetch(`/api/admin/usage?password=${encodeURIComponent(password)}`)
+      const data = await response.json()
+
+      if (response.ok) {
+        setUsageStats(data)
+      } else {
+        console.warn("Failed to load usage stats:", data.error)
+      }
+    } catch (error) {
+      console.warn("Network error loading usage stats:", error)
     }
   }
 
@@ -471,6 +502,69 @@ export default function AdminFeedbackPage() {
               <div style={styles.statValue}>{Object.keys(stats.types).length}</div>
             </div>
           </div>
+        )}
+
+        {usageStats && (
+          <>
+            <h2 style={{ fontSize: "24px", fontWeight: 800, marginBottom: "8px", marginTop: "32px" }}>
+              Usage Statistics
+            </h2>
+            <p style={{ fontSize: "16px", color: "#6b7280", marginBottom: "24px" }}>
+              AI reasoning feature usage metrics
+            </p>
+
+            <div style={styles.statsGrid}>
+              <div style={styles.statCard}>
+                <div style={styles.statTitle}>Unique Users</div>
+                <div style={styles.statValue}>{usageStats.totalUsers}</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statTitle}>Total Usage</div>
+                <div style={styles.statValue}>{usageStats.totalUsage}</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statTitle}>Generate Calls</div>
+                <div style={styles.statValue}>{usageStats.featureUsage.reasoning_generate || 0}</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statTitle}>Retrieve Calls</div>
+                <div style={styles.statValue}>{usageStats.featureUsage.reasoning_retrieve || 0}</div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "32px" }}>
+              <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px" }}>
+                User Details
+              </h3>
+              <div style={styles.feedbackList}>
+                {usageStats.userDetails.map((user) => (
+                  <div key={user.user_id} style={styles.feedbackItem}>
+                    <div style={styles.feedbackHeader}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <span style={{ fontSize: "14px", fontWeight: 600 }}>
+                          {user.user_email}
+                        </span>
+                        <span style={styles.feedbackType}>
+                          {user.total_usage} total uses
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#9ca3af" }}>
+                        Last used: {new Date(user.last_used_at).toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div style={styles.feedbackMeta}>
+                      {Object.entries(user.features_used).map(([feature, count]) => (
+                        <span key={feature}>
+                          {feature}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
         )}
 
         <div style={styles.filters}>

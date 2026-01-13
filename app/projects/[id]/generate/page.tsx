@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
 
 /* ================= TYPES ================= */
@@ -44,6 +44,7 @@ type ReasoningOutput = {
 export default function GenerateProjectPage() {
   const { id: projectId } = useParams<{ id: string }>()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const queryText = searchParams.get("query")
   const approachParam = searchParams.get("approach")
   const wordLimitParam = searchParams.get("word_limit")
@@ -62,34 +63,60 @@ export default function GenerateProjectPage() {
   const [citationQualityScore, setCitationQualityScore] = useState<number | null>(null)
   const [coverageAnalysis, setCoverageAnalysis] = useState<any>(null)
   const [copyWithCitations, setCopyWithCitations] = useState(false)
+  const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
-    if (!projectId || !queryText) {
-      setError("Missing project or query")
-      setLoading(false)
-      return
-    }
-
-    // Parse approach if provided
-    if (approachParam) {
-      try {
-        const approach = JSON.parse(approachParam)
-        setSelectedApproach(approach)
-      } catch (e) {
-        console.error("Failed to parse approach:", e)
+    const initialize = async () => {
+      // Check authentication first
+      const { data: sessionData } = await supabase.auth.getSession()
+      const user = sessionData.session?.user
+      if (!user) {
+        router.replace("/login")
+        return
       }
-    }
+      setCurrentUser(user)
 
-    if (hasRequestedRef.current) return
-    hasRequestedRef.current = true
+      if (!projectId || !queryText) {
+        setError("Missing project or query")
+        setLoading(false)
+        return
+      }
 
-    const generate = async () => {
+      // Parse approach if provided
+      if (approachParam) {
+        try {
+          const approach = JSON.parse(approachParam)
+          setSelectedApproach(approach)
+        } catch (e) {
+          console.error("Failed to parse approach:", e)
+        }
+      }
+
+      if (hasRequestedRef.current) return
+      hasRequestedRef.current = true
+
+      const generate = async () => {
       try {
+        // Log usage before making the API call
+        try {
+          await supabase.rpc('increment_usage_log', {
+            p_user_id: user.id,
+            p_user_email: user.email,
+            p_feature: 'reasoning_generate',
+            p_project_id: projectId
+          })
+        } catch (logError) {
+          console.warn('Failed to log usage:', logError)
+          // Continue with generation even if logging fails
+        }
+
         const requestBody: any = {
           project_id: projectId,
           query_text: queryText,
           mode: "generate",
           approach: selectedApproach,
+          user_id: user.id,
+          user_email: user.email,
         }
 
         // Add word_limit if provided via URL param
@@ -157,10 +184,13 @@ export default function GenerateProjectPage() {
       } finally {
         setLoading(false)
       }
+      }
+
+      generate()
     }
 
-    generate()
-  }, [projectId, queryText, approachParam])
+    initialize()
+  }, [projectId, queryText, approachParam, router])
 
   /* ================= UI STATES ================= */
 
