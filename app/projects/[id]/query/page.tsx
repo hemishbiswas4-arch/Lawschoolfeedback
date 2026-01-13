@@ -259,7 +259,7 @@ export default function QueryPage() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               rows={6}
-              placeholder="e.g., Write a 1500-word legal memorandum on strict liability in tort law. Structure with introduction, elements analysis, case law review, and conclusion. Use Bluebook citations."
+              placeholder="e.g., Write a 1500-word legal memorandum on strict liability in tort law. Structure with introduction, elements analysis, case law review, and conclusion."
               style={{
                 width: "100%",
                 padding: "16px",
