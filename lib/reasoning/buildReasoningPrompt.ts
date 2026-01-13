@@ -267,23 +267,43 @@ export function buildReasoningPrompt({
   let minWordsPerParagraph = DEFAULT_MIN_WORDS_PER_PARAGRAPH
   let maxWordsPerParagraph = DEFAULT_MAX_WORDS_PER_PARAGRAPH
   let targetTotalWords = DEFAULT_MAX_TOTAL_WORDS
-  
-  if (effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS) {
-    // Calculate structure to accommodate the word limit
-    // Use average of 110 words per paragraph for calculation
-    const avgWordsPerParagraph = 110
-    const totalParagraphsNeeded = Math.ceil(effectiveWordLimit / avgWordsPerParagraph)
-    
-    // Distribute paragraphs across sections (aim for 3-5 paragraphs per section)
-    const idealParagraphsPerSection = 4
-    minSections = Math.max(DEFAULT_MIN_SECTIONS, Math.ceil(totalParagraphsNeeded / idealParagraphsPerSection))
-    minParagraphsPerSection = Math.max(DEFAULT_MIN_PARAGRAPHS_PER_SECTION, Math.floor(totalParagraphsNeeded / minSections))
-    
-    // Adjust word range slightly to accommodate larger outputs
-    // Keep paragraph length reasonable but allow more flexibility
-    minWordsPerParagraph = 85
-    maxWordsPerParagraph = 150
-    targetTotalWords = effectiveWordLimit
+
+  if (effectiveWordLimit) {
+    if (effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS) {
+      // Calculate structure to accommodate larger word limits
+      // Use average of 110 words per paragraph for calculation
+      const avgWordsPerParagraph = 110
+      const totalParagraphsNeeded = Math.ceil(effectiveWordLimit / avgWordsPerParagraph)
+
+      // Distribute paragraphs across sections (aim for 3-5 paragraphs per section)
+      const idealParagraphsPerSection = 4
+      minSections = Math.max(DEFAULT_MIN_SECTIONS, Math.ceil(totalParagraphsNeeded / idealParagraphsPerSection))
+      minParagraphsPerSection = Math.max(DEFAULT_MIN_PARAGRAPHS_PER_SECTION, Math.floor(totalParagraphsNeeded / minSections))
+
+      // Adjust word range slightly to accommodate larger outputs
+      // Keep paragraph length reasonable but allow more flexibility
+      minWordsPerParagraph = 85
+      maxWordsPerParagraph = 150
+      targetTotalWords = effectiveWordLimit
+    } else if (effectiveWordLimit < DEFAULT_MAX_TOTAL_WORDS) {
+      // Calculate structure to accommodate smaller word limits
+      // Use average of 110 words per paragraph for calculation
+      const avgWordsPerParagraph = 110
+      const totalParagraphsNeeded = Math.ceil(effectiveWordLimit / avgWordsPerParagraph)
+
+      // For smaller outputs, reduce the number of sections and paragraphs
+      // Minimum 2 sections, maximum 4 sections for smaller outputs
+      minSections = Math.max(2, Math.min(4, Math.ceil(totalParagraphsNeeded / 3)))
+
+      // Adjust paragraphs per section based on total needed
+      minParagraphsPerSection = Math.max(2, Math.floor(totalParagraphsNeeded / minSections))
+
+      // For smaller outputs, allow shorter paragraphs
+      minWordsPerParagraph = 60
+      maxWordsPerParagraph = 120
+
+      targetTotalWords = effectiveWordLimit
+    }
   }
 
   /* ---------- Approach context ---------- */
@@ -392,6 +412,13 @@ ${effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS
 - Each paragraph MUST be between ${minWordsPerParagraph} and ${maxWordsPerParagraph} words.
 - The query requires comprehensive analysis, so ensure you fully develop your arguments across all sections.
 `
+  : effectiveWordLimit && effectiveWordLimit < DEFAULT_MAX_TOTAL_WORDS
+  ? `- TARGET WORD COUNT: Your output should aim for approximately ${targetTotalWords.toLocaleString()} words total.
+- You MUST produce AT LEAST ${minSections} sections.
+- Each section MUST contain AT LEAST ${minParagraphsPerSection} paragraphs.
+- Each paragraph MUST be between ${minWordsPerParagraph} and ${maxWordsPerParagraph} words.
+- IMPORTANT: This is a concise analysis, so focus on the most essential arguments and evidence while maintaining scholarly rigor.
+`
   : approach?.argumentation_line?.structure?.sections
   ? `- You MUST follow the proposed structure with ${approach.argumentation_line.structure.sections.length} sections as outlined above.
 - Each section MUST contain AT LEAST ${minParagraphsPerSection} paragraphs.
@@ -420,6 +447,12 @@ ${effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS
 - Do NOT collapse ideas to reduce paragraph count - academic rigor requires full development of theoretical arguments
 - Include scholarly transitions between sections that connect ideas within broader theoretical frameworks
 - Position arguments within existing scholarly debates and demonstrate original contributions
+${effectiveWordLimit && effectiveWordLimit < DEFAULT_MAX_TOTAL_WORDS
+  ? `- IMPORTANT: Given the concise word limit, prioritize the most critical scholarly arguments and evidence. Focus on core theoretical contributions rather than exhaustive analysis.`
+  : effectiveWordLimit && effectiveWordLimit > DEFAULT_MAX_TOTAL_WORDS
+  ? `- IMPORTANT: Given the extended word limit, ensure comprehensive scholarly analysis that engages with theoretical frameworks, methodological approaches, and contributes to academic debate.`
+  : ""}
+- Do NOT collapse ideas to reduce paragraph count - academic rigor requires full development of theoretical arguments
 
 Failure to meet these academic structural requirements is a violation.
 
