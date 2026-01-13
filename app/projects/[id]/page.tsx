@@ -175,10 +175,10 @@ export default function ProjectPage() {
       alert(`The following files exceed the 50MB limit and were skipped:\n${oversizedFiles.join('\n')}`)
     }
 
-    // Check total file count limit (20 files max)
+    // Check total file count limit (50 files max)
     const currentCount = selectedFiles.length
     const newValidCount = validFiles.length
-    const maxTotalFiles = 20
+    const maxTotalFiles = 50
 
     if (currentCount + newValidCount > maxTotalFiles) {
       const allowedCount = maxTotalFiles - currentCount
@@ -251,10 +251,10 @@ export default function ProjectPage() {
       alert(`The following files exceed the 50MB limit and were skipped:\n${oversizedFiles.join('\n')}`)
     }
 
-    // Check total file count limit (20 files max)
+    // Check total file count limit (50 files max)
     const currentCount = selectedFiles.length
     const newValidCount = validFiles.length
-    const maxTotalFiles = 20
+    const maxTotalFiles = 50
 
     if (currentCount + newValidCount > maxTotalFiles) {
       const allowedCount = maxTotalFiles - currentCount
@@ -316,7 +316,7 @@ export default function ProjectPage() {
       return setInterval(() => {
         progressValue = Math.min(progressValue + 2, 90)
         setUploadProgress(prev => ({ ...prev, [fileId]: progressValue }))
-      }, 200)
+      }, 500)
     })
 
     try {
@@ -466,7 +466,7 @@ export default function ProjectPage() {
       minHeight: "100vh",
       background: "#f9fafb",
       fontFamily: "system-ui, -apple-system, sans-serif",
-      padding: "40px 20px"
+      padding: "40px 50px"
     }}>
       <div style={{
         maxWidth: "1100px",
@@ -501,7 +501,7 @@ export default function ProjectPage() {
               padding: "6px 12px",
               background: "#ecfdf5",
               border: "1px solid #d1fae5",
-              borderRadius: "20px",
+              borderRadius: "50px",
               fontSize: "12px",
               fontWeight: 600,
               color: "#065f46",
@@ -669,7 +669,7 @@ export default function ProjectPage() {
           {showSourceGuidance && (
             <div style={{
               marginTop: "16px",
-              padding: "20px",
+              padding: "50px",
               background: "#f8fafc",
               border: "1px solid #e2e8f0",
               borderRadius: "12px"
@@ -774,8 +774,9 @@ export default function ProjectPage() {
               color: "#6b7280"
             }}>
               <span>Maximum 50MB per file</span>
-              <span>Up to 20 files</span>
+              <span>Up to 50 files</span>
               <span>PDF format only</span>
+              <span>Large uploads may take several minutes to process</span>
             </div>
           </div>
 
@@ -1031,7 +1032,7 @@ export default function ProjectPage() {
                   <div
                     key={s.id}
                     style={{
-                      padding: "20px",
+                      padding: "50px",
                       border: "1px solid #e5e7eb",
                       borderRadius: "12px",
                       background: "#fff",

@@ -187,52 +187,53 @@ export default function QueryPage() {
             marginBottom: "24px"
           }}>
             <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#111", marginBottom: "16px" }}>
-              Writing Effective Research Queries
+              Crafting Your Paper Prompt
             </h2>
             <div style={{ display: "grid", gap: "16px" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
-                  Be Specific and Precise
+                  Structured Prompts for Better Results
                 </h3>
                 <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
-                  Focus on particular legal issues, doctrines, or case outcomes rather than broad topics.
-                  Include specific terminology and jurisdiction when relevant.
+                  Instead of simple queries, provide detailed instructions on how you want your paper structured.
+                  Include how sources should be cited, the paper's organization, and any specific focus areas.
+                  Keep prompts under 2000 characters to manage usage costs.
                 </p>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
-                  Use Legal Terminology
+                  Source Usage Guidelines
                 </h3>
                 <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
-                  Employ the precise legal vocabulary from your field. The system searches for semantic meaning,
-                  so using terms like "tortious interference," "promissory estoppel," or "strict scrutiny" will yield better results.
+                  Specify how you want sources integrated - whether to quote directly, paraphrase, or use as authority.
+                  Mention citation styles (e.g., Bluebook, APA) and how much detail to include from each source.
                 </p>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
-                  Include Contextual Details
+                  Paper Structure & Focus
                 </h3>
                 <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
-                  Mention relevant facts, procedural postures, or analytical frameworks to help identify the most
-                  pertinent passages from your sources.
+                  Describe the desired paper structure (introduction, body sections, conclusion) and areas to emphasize.
+                  Include word count targets, tone (formal, analytical), and any specific legal frameworks to apply.
                 </p>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
-                  Examples of Effective Queries
+                  Example Prompts
                 </h3>
                 <div style={{ fontSize: "13px", color: "#6b7280", lineHeight: 1.6 }}>
-                  <div style={{ marginBottom: "8px" }}>
-                    <strong>Good:</strong> "How have courts applied the Chevron deference doctrine in environmental regulation cases since 2010?"
+                  <div style={{ marginBottom: "12px" }}>
+                    <strong>Structured:</strong> "Write a 1500-word legal memorandum analyzing strict liability under tort law. Structure with introduction, elements of strict liability, case law analysis, and conclusion. Cite sources using Bluebook format, focusing on recent Supreme Court decisions. Emphasize policy justifications for strict liability."
                   </div>
-                  <div style={{ marginBottom: "8px" }}>
-                    <strong>Good:</strong> "What are the requirements for proving fraudulent inducement in contract formation under New York law?"
+                  <div style={{ marginBottom: "12px" }}>
+                    <strong>Structured:</strong> "Create a 2000-word research paper on contract formation requirements. Include: executive summary, background section, analysis of offer/acceptance/mutual assent, remedies for breach, and conclusion. Use APA citations, integrate case law examples throughout, focus on UCC Article 2."
                   </div>
                   <div>
-                    <strong>Less effective:</strong> "Tell me about contracts" (too broad)
+                    <strong>Simple option:</strong> "Write about contract law" (for when you're feeling lazy)
                   </div>
                 </div>
               </div>
@@ -261,13 +262,13 @@ export default function QueryPage() {
                 marginBottom: "12px",
               }}
             >
-              Research Question
+              Paper Prompt
             </label>
             <textarea
               value={query}
               onChange={e => setQuery(e.target.value)}
               rows={6}
-              placeholder="e.g., How have courts applied the Chevron deference doctrine in environmental regulation cases since 2010?"
+              placeholder="e.g., Write a 1500-word legal memorandum on strict liability in tort law. Structure with introduction, elements analysis, case law review, and conclusion. Use Bluebook citations."
               style={{
                 width: "100%",
                 padding: "16px",
