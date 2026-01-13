@@ -97,18 +97,7 @@ export default function GenerateProjectPage() {
 
       const generate = async () => {
       try {
-        // Log usage before making the API call
-        try {
-          await supabase.rpc('increment_usage_log', {
-            p_user_id: user.id,
-            p_user_email: user.email,
-            p_feature: 'reasoning_generate',
-            p_project_id: projectId
-          })
-        } catch (logError) {
-          console.warn('Failed to log usage:', logError)
-          // Continue with generation even if logging fails
-        }
+        // Usage logging is handled in the API route
 
         const requestBody: any = {
           project_id: projectId,

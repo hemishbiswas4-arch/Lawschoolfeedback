@@ -72,6 +72,8 @@ type SynthesizeInput = {
     similarity: number | null
   }>
   project_type?: string
+  user_id?: string
+  user_email?: string
 }
 
 type ArgumentationLine = {
@@ -116,13 +118,28 @@ export async function POST(req: Request) {
 
   try {
     const body = (await req.json()) as SynthesizeInput
-    const { project_id, query_text, retrieved_chunks, project_type } = body
+    const { project_id, query_text, retrieved_chunks, project_type, user_id, user_email } = body
 
     if (!project_id || !query_text?.trim() || !retrieved_chunks?.length) {
       return NextResponse.json(
         { error: "Missing project_id, query_text, or retrieved_chunks" },
         { status: 400 }
       )
+    }
+
+    // Log usage if user info is provided
+    if (user_id && user_email) {
+      try {
+        await supabase.rpc('increment_usage_log', {
+          p_user_id: user_id,
+          p_user_email: user_email,
+          p_feature: 'reasoning_synthesize',
+          p_project_id: project_id
+        })
+      } catch (logError) {
+        console.warn(`SYNTHESIZE [${runId}] Usage logging failed:`, logError)
+        // Continue with synthesis even if logging fails
+      }
     }
 
     // Create a request key for deduplication

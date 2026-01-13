@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
+import { supabase } from "@/lib/supabaseClient"
 
 /* ================= TYPES ================= */
 
@@ -189,6 +190,10 @@ export default function SynthesizePage() {
 
         console.log(`Proceeding with ${retrievedChunks.length} chunks for synthesis`)
 
+        // Get user info for usage logging
+        const { data: sessionData } = await supabase.auth.getSession()
+        const user = sessionData.session?.user
+
         console.log("Calling synthesis API...")
         const res = await fetch("/api/reasoning/synthesize", {
           method: "POST",
@@ -197,6 +202,8 @@ export default function SynthesizePage() {
             project_id: projectId,
             query_text: queryText,
             retrieved_chunks: retrievedChunks,
+            user_id: user?.id,
+            user_email: user?.email,
           }),
           signal: abortController.signal,
         })
