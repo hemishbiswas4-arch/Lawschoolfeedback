@@ -539,57 +539,61 @@ export default function AdminFeedbackPage() {
               </div>
             )}
 
-            <div style={styles.statsGrid}>
-              <div style={styles.statCard}>
-                <div style={styles.statTitle}>Unique Users</div>
-                <div style={styles.statValue}>{usageStats.totalUsers}</div>
+            {usageStats && (
+              <div style={styles.statsGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statTitle}>Unique Users</div>
+                  <div style={styles.statValue}>{usageStats.totalUsers}</div>
+                </div>
+                <div style={styles.statCard}>
+                  <div style={styles.statTitle}>Total Usage</div>
+                  <div style={styles.statValue}>{usageStats.totalUsage}</div>
+                </div>
+                <div style={styles.statCard}>
+                  <div style={styles.statTitle}>Generate Calls</div>
+                  <div style={styles.statValue}>{usageStats.featureUsage.reasoning_generate || 0}</div>
+                </div>
+                <div style={styles.statCard}>
+                  <div style={styles.statTitle}>Retrieve Calls</div>
+                  <div style={styles.statValue}>{usageStats.featureUsage.reasoning_retrieve || 0}</div>
+                </div>
               </div>
-              <div style={styles.statCard}>
-                <div style={styles.statTitle}>Total Usage</div>
-                <div style={styles.statValue}>{usageStats.totalUsage}</div>
-              </div>
-              <div style={styles.statCard}>
-                <div style={styles.statTitle}>Generate Calls</div>
-                <div style={styles.statValue}>{usageStats.featureUsage.reasoning_generate || 0}</div>
-              </div>
-              <div style={styles.statCard}>
-                <div style={styles.statTitle}>Retrieve Calls</div>
-                <div style={styles.statValue}>{usageStats.featureUsage.reasoning_retrieve || 0}</div>
-              </div>
-            </div>
+            )}
 
-            <div style={{ marginTop: "32px" }}>
-              <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px" }}>
-                User Details
-              </h3>
-              <div style={styles.feedbackList}>
-                {usageStats.userDetails.map((user) => (
-                  <div key={user.user_id} style={styles.feedbackItem}>
-                    <div style={styles.feedbackHeader}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <span style={{ fontSize: "14px", fontWeight: 600 }}>
-                          {user.user_email}
-                        </span>
-                        <span style={styles.feedbackType}>
-                          {user.total_usage} total uses
-                        </span>
+            {usageStats && (
+              <div style={{ marginTop: "32px" }}>
+                <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px" }}>
+                  User Details
+                </h3>
+                <div style={styles.feedbackList}>
+                  {usageStats.userDetails.map((user) => (
+                    <div key={user.user_id} style={styles.feedbackItem}>
+                      <div style={styles.feedbackHeader}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <span style={{ fontSize: "14px", fontWeight: 600 }}>
+                            {user.user_email}
+                          </span>
+                          <span style={styles.feedbackType}>
+                            {user.total_usage} total uses
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "12px", color: "#9ca3af" }}>
+                          Last used: {new Date(user.last_used_at).toLocaleString()}
+                        </div>
                       </div>
-                      <div style={{ fontSize: "12px", color: "#9ca3af" }}>
-                        Last used: {new Date(user.last_used_at).toLocaleString()}
+
+                      <div style={styles.feedbackMeta}>
+                        {Object.entries(user.features_used).map(([feature, count]) => (
+                          <span key={feature}>
+                            {feature}: {count}
+                          </span>
+                        ))}
                       </div>
                     </div>
-
-                    <div style={styles.feedbackMeta}>
-                      {Object.entries(user.features_used).map(([feature, count]) => (
-                        <span key={feature}>
-                          {feature}: {count}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
 
