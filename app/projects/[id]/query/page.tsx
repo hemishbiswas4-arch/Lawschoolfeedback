@@ -196,20 +196,11 @@ export default function QueryPage() {
                 </h3>
                 <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
                   Instead of simple queries, provide detailed instructions on how you want your paper structured.
-                  Include how sources should be cited, the paper's organization, and any specific focus areas.
-                  Keep prompts under 2000 characters to manage usage costs.
+                  Include the paper's organization, content focus areas, and any specific requirements.
+                  Keep prompts under 2000 characters for optimal processing.
                 </p>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
-                  Source Usage Guidelines
-                </h3>
-                <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
-                  Specify how you want sources integrated - whether to quote directly, paraphrase, or use as authority.
-                  Mention citation styles (e.g., Bluebook, APA) and how much detail to include from each source.
-                </p>
-              </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#374151", margin: 0 }}>
@@ -227,10 +218,10 @@ export default function QueryPage() {
                 </h3>
                 <div style={{ fontSize: "13px", color: "#6b7280", lineHeight: 1.6 }}>
                   <div style={{ marginBottom: "12px" }}>
-                    <strong>Structured:</strong> "Write a 1500-word legal memorandum analyzing strict liability under tort law. Structure with introduction, elements of strict liability, case law analysis, and conclusion. Cite sources using Bluebook format, focusing on recent Supreme Court decisions. Emphasize policy justifications for strict liability."
+                    <strong>Structured:</strong> "Write a 1500-word legal memorandum analyzing strict liability under tort law. Structure with introduction, elements of strict liability, case law analysis, and conclusion. Focus on recent Supreme Court decisions and emphasize policy justifications for strict liability."
                   </div>
                   <div style={{ marginBottom: "12px" }}>
-                    <strong>Structured:</strong> "Create a 2000-word research paper on contract formation requirements. Include: executive summary, background section, analysis of offer/acceptance/mutual assent, remedies for breach, and conclusion. Use APA citations, integrate case law examples throughout, focus on UCC Article 2."
+                    <strong>Structured:</strong> "Create a 2000-word research paper on contract formation requirements. Include: executive summary, background section, analysis of offer/acceptance/mutual assent, remedies for breach, and conclusion. Integrate case law examples throughout, focus on UCC Article 2."
                   </div>
                   <div>
                     <strong>Simple option:</strong> "Write about contract law" (for when you're feeling lazy)
