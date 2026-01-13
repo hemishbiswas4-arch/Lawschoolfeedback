@@ -58,6 +58,7 @@ export default function AdminFeedbackPage() {
   const [feedback, setFeedback] = useState<FeedbackItem[]>([])
   const [stats, setStats] = useState<FeedbackStats | null>(null)
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null)
+  const [usageStatsError, setUsageStatsError] = useState("")
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -295,10 +296,12 @@ export default function AdminFeedbackPage() {
   // Check for existing authentication on mount
   useEffect(() => {
     const storedAuth = localStorage.getItem('admin_authenticated')
-    if (storedAuth === 'true') {
+    const storedPassword = localStorage.getItem('admin_password')
+    if (storedAuth === 'true' && storedPassword) {
+      setPassword(storedPassword)
       setIsAuthenticated(true)
       loadFeedback()
-      loadUsageStats()
+      loadUsageStats(storedPassword)
     }
   }, [])
 
@@ -314,8 +317,9 @@ export default function AdminFeedbackPage() {
       if (response.ok) {
         setIsAuthenticated(true)
         localStorage.setItem('admin_authenticated', 'true')
+        localStorage.setItem('admin_password', password) // Store password for API calls
         loadFeedback()
-        loadUsageStats()
+        loadUsageStats(password)
       } else {
         setAuthError("Invalid password")
       }
@@ -361,18 +365,26 @@ export default function AdminFeedbackPage() {
     }
   }
 
-  const loadUsageStats = async () => {
+  const loadUsageStats = async (authPassword?: string) => {
+    const pwd = authPassword || password
+    if (!pwd) return
+
+    setUsageStatsError("")
     try {
-      const response = await fetch(`/api/admin/usage?password=${encodeURIComponent(password)}`)
+      const response = await fetch(`/api/admin/usage?password=${encodeURIComponent(pwd)}`)
       const data = await response.json()
 
       if (response.ok) {
         setUsageStats(data)
       } else {
-        console.warn("Failed to load usage stats:", data.error)
+        const errorMsg = data.error || "Failed to load usage stats"
+        setUsageStatsError(errorMsg)
+        console.warn("Failed to load usage stats:", errorMsg)
       }
     } catch (error) {
-      console.warn("Network error loading usage stats:", error)
+      const errorMsg = "Network error loading usage stats"
+      setUsageStatsError(errorMsg)
+      console.warn(errorMsg, error)
     }
   }
 
@@ -390,8 +402,10 @@ export default function AdminFeedbackPage() {
     setIsAuthenticated(false)
     setPassword("")
     localStorage.removeItem('admin_authenticated')
+    localStorage.removeItem('admin_password')
     setFeedback([])
     setStats(null)
+    setUsageStats(null)
   }
 
   if (!isAuthenticated) {
@@ -504,7 +518,7 @@ export default function AdminFeedbackPage() {
           </div>
         )}
 
-        {usageStats && (
+        {(usageStats || usageStatsError) && (
           <>
             <h2 style={{ fontSize: "24px", fontWeight: 800, marginBottom: "8px", marginTop: "32px" }}>
               Usage Statistics
@@ -512,6 +526,18 @@ export default function AdminFeedbackPage() {
             <p style={{ fontSize: "16px", color: "#6b7280", marginBottom: "24px" }}>
               AI reasoning feature usage metrics
             </p>
+
+            {usageStatsError && (
+              <div style={{
+                ...styles.errorMessage,
+                marginBottom: "24px",
+                backgroundColor: "#fef3c7",
+                color: "#92400e",
+                border: "1px solid #f59e0b"
+              }}>
+                {usageStatsError}
+              </div>
+            )}
 
             <div style={styles.statsGrid}>
               <div style={styles.statCard}>
