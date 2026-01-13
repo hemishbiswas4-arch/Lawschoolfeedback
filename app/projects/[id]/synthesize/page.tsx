@@ -115,22 +115,30 @@ export default function SynthesizePage() {
           try {
             const parsedSynthesis = JSON.parse(cachedSynthesis)
             console.log(`Loaded synthesis from sessionStorage cache`)
-            setSynthesis(parsedSynthesis)
-            setLoadedFromCache(true)
 
-            // Set defaults from cached data
-            if (parsedSynthesis.recommended_structure) {
-              setSelectedApproach({
-                argumentation_line_id: null,
-                tone: parsedSynthesis.personalization_options.tone_options[0]?.value || "",
-                structure_type: parsedSynthesis.recommended_structure.type,
-                focus_areas: [],
-              })
+            // Check if this is a back/forward navigation or refresh
+            const navigationEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
+            const isBackForwardOrReload = navigationEntry?.type === 'back_forward' || navigationEntry?.type === 'reload'
+
+            if (isBackForwardOrReload) {
+              console.log('Back/forward navigation or refresh detected - using cached data without API call')
+              setSynthesis(parsedSynthesis)
+              setLoadedFromCache(true)
+
+              // Set defaults from cached data
+              if (parsedSynthesis.recommended_structure) {
+                setSelectedApproach({
+                  argumentation_line_id: null,
+                  tone: parsedSynthesis.personalization_options.tone_options[0]?.value || "",
+                  structure_type: parsedSynthesis.recommended_structure.type,
+                  focus_areas: [],
+                })
+              }
+
+              setSynthesizing(false)
+              setLoading(false)
+              return
             }
-
-            setSynthesizing(false)
-            setLoading(false)
-            return
           } catch (e) {
             console.error("Failed to parse cached synthesis:", e)
             // Remove corrupted cache

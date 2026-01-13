@@ -52,6 +52,7 @@ export default function GenerateProjectPage() {
   const hasRequestedRef = useRef(false)
 
   const [loading, setLoading] = useState(true)
+  const [loadedFromCache, setLoadedFromCache] = useState(false)
   const [reasoning, setReasoning] = useState<ReasoningOutput | null>(null)
   const [evidenceIndex, setEvidenceIndex] = useState<
     Record<string, EvidenceMeta>
@@ -64,6 +65,10 @@ export default function GenerateProjectPage() {
   const [coverageAnalysis, setCoverageAnalysis] = useState<any>(null)
   const [copyWithCitations, setCopyWithCitations] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+
+  // Cache key for generation results
+  const generationCacheKey = projectId && queryText ?
+    `generation_${projectId}_${queryText.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}_${approachParam ? approachParam.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_') : 'default'}` : null
 
   useEffect(() => {
     const initialize = async () => {
@@ -89,6 +94,61 @@ export default function GenerateProjectPage() {
           setSelectedApproach(approach)
         } catch (e) {
           console.error("Failed to parse approach:", e)
+        }
+      }
+
+      // Check for cached generation results first
+      if (typeof window !== "undefined" && generationCacheKey) {
+        const cachedGeneration = sessionStorage.getItem(generationCacheKey)
+        if (cachedGeneration) {
+          try {
+            const parsedGeneration = JSON.parse(cachedGeneration)
+            console.log(`Loaded generation from sessionStorage cache`)
+
+            // Check if this is a back/forward navigation or refresh
+            const navigationEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
+            const isBackForwardOrReload = navigationEntry?.type === 'back_forward' || navigationEntry?.type === 'reload'
+
+            if (isBackForwardOrReload) {
+              console.log('Back/forward navigation or refresh detected - using cached data without API call')
+              setReasoning(parsedGeneration.reasoning_output)
+              setEvidenceIndex(parsedGeneration.evidence_index)
+              setCitationQualityScore(parsedGeneration.citation_quality_score || null)
+              setCoverageAnalysis(parsedGeneration.coverage_analysis || null)
+              setLoadedFromCache(true)
+
+              // Fetch source titles for cached data
+              const sourceIds = new Set<string>()
+              const evidenceIndex = parsedGeneration.evidence_index as Record<string, EvidenceMeta>
+              for (const meta of Object.values(evidenceIndex)) {
+                sourceIds.add(meta.source_id)
+              }
+
+              if (sourceIds.size > 0) {
+                const { data: sources } = await supabase
+                  .from("project_sources")
+                  .select("id, title")
+                  .eq("project_id", projectId)
+                  .in("id", Array.from(sourceIds))
+
+                if (sources) {
+                  const titleMap: Record<string, string> = {}
+                  for (const source of sources) {
+                    titleMap[source.id] = source.title
+                  }
+                  setSourceTitles(titleMap)
+                }
+              }
+
+              setError(null)
+              setLoading(false)
+              return
+            }
+          } catch (e) {
+            console.error("Failed to parse cached generation:", e)
+            // Remove corrupted cache
+            sessionStorage.removeItem(generationCacheKey)
+          }
         }
       }
 
@@ -143,6 +203,17 @@ export default function GenerateProjectPage() {
         setEvidenceIndex(json.evidence_index)
         setCitationQualityScore(json.citation_quality_score || null)
         setCoverageAnalysis(json.coverage_analysis || null)
+        setLoadedFromCache(false)
+
+        // Cache the generation results in sessionStorage
+        if (typeof window !== "undefined" && generationCacheKey) {
+          try {
+            sessionStorage.setItem(generationCacheKey, JSON.stringify(json))
+            console.log(`Cached generation results in sessionStorage`)
+          } catch (e) {
+            console.warn("Failed to cache generation results:", e)
+          }
+        }
         
         // Fetch source titles for all source IDs in evidence index
         const sourceIds = new Set<string>()
@@ -330,6 +401,20 @@ export default function GenerateProjectPage() {
         <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "32px" }}>
           Query: <em>{queryText}</em>
         </p>
+
+        {loadedFromCache && (
+          <div style={{
+            padding: "8px 12px",
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: "6px",
+            marginBottom: "24px",
+            fontSize: "12px",
+            color: "#166534"
+          }}>
+            ✓ Analysis loaded from cache (for faster performance)
+          </div>
+        )}
 
         {selectedApproach?.argumentation_line && (
           <div
