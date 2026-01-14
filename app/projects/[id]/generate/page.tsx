@@ -66,10 +66,19 @@ export default function GenerateProjectPage() {
   const [coverageAnalysis, setCoverageAnalysis] = useState<any>(null)
   const [copyWithCitations, setCopyWithCitations] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [showFullQuery, setShowFullQuery] = useState(false)
 
   // Cache key for generation results
   const generationCacheKey = projectId && queryText ?
     `generation_${projectId}_${queryText.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}_${approachParam ? approachParam.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_') : 'default'}` : null
+
+  // Helper to truncate long query text for display
+  const truncateQuery = (text: string, maxLength = 120) => {
+    if (!text || text.length <= maxLength) return text
+    return text.slice(0, maxLength).trim() + "..."
+  }
+
+  const isQueryTruncated = queryText && queryText.length > 120
 
   useEffect(() => {
     const initialize = async () => {
@@ -380,13 +389,45 @@ export default function GenerateProjectPage() {
           justifyContent: "space-between",
           alignItems: "center"
         }}>
-          <div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <h1 style={{ fontSize: "26px", fontWeight: 700, margin: 0 }}>
               Generated Research Project
             </h1>
-            <p style={{ fontSize: "14px", color: "#6b7280", margin: "4px 0 0 0" }}>
-              Query: <em>{queryText}</em>
-            </p>
+            <div style={{
+              fontSize: "14px",
+              color: "#6b7280",
+              margin: "4px 0 0 0",
+              maxHeight: showFullQuery ? "150px" : "auto",
+              overflowY: showFullQuery ? "auto" : "hidden",
+              wordWrap: "break-word"
+            }}>
+              Query: <em>
+                <span
+                  style={{
+                    cursor: isQueryTruncated ? "pointer" : "default",
+                    textDecoration: isQueryTruncated ? "underline" : "none",
+                    textDecorationStyle: "dotted",
+                    padding: "1px 2px",
+                    borderRadius: "2px",
+                    transition: "background-color 0.2s"
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isQueryTruncated) {
+                      e.currentTarget.style.backgroundColor = "#f3f4f6"
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (isQueryTruncated) {
+                      e.currentTarget.style.backgroundColor = "transparent"
+                    }
+                  }}
+                  onClick={() => isQueryTruncated && setShowFullQuery(!showFullQuery)}
+                  title={isQueryTruncated ? "Click to toggle full query" : ""}
+                >
+                  {showFullQuery ? queryText : truncateQuery(queryText || "")}
+                </span>
+              </em>
+            </div>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             <Link
