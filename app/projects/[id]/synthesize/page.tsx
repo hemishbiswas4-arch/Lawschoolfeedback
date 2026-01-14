@@ -402,7 +402,7 @@ export default function SynthesizePage() {
     <div style={{ padding: "60px", maxWidth: "1200px", margin: "0 auto" }}>
       <div style={{ marginBottom: "16px" }}>
         <Link
-          href={`/projects/${projectId}`}
+          href={`/projects/${projectId}/query?query=${encodeURIComponent(queryText || "")}`}
           style={{
             padding: "8px 16px",
             borderRadius: "6px",
@@ -424,7 +424,7 @@ export default function SynthesizePage() {
             e.currentTarget.style.background = "#ffffff"
           }}
         >
-          ← Back to Project
+          ← Back to Query
         </Link>
       </div>
       <h1 style={{ fontSize: "26px", fontWeight: 700, marginBottom: "12px" }}>

@@ -269,7 +269,7 @@ export default function ProjectsPage() {
         <div style={styles.header}>
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <Link
-              href="/dashboard"
+              href="/"
               style={{
                 padding: "8px 12px",
                 borderRadius: "6px",
@@ -291,7 +291,7 @@ export default function ProjectsPage() {
                 e.currentTarget.style.background = "#ffffff"
               }}
             >
-              ← Back to Dashboard
+              ← Back to Home
             </Link>
             <div>
               <h1 style={styles.title}>Projects</h1>
