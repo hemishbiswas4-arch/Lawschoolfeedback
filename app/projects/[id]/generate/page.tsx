@@ -521,7 +521,7 @@ export default function GenerateProjectPage() {
                   >
                     <div style={{
                       position: "absolute",
-                      left: "-12px",
+                      left: "-20px",
                       top: "0",
                       background: "#6b7280",
                       color: "#fff",
