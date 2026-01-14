@@ -560,12 +560,7 @@ export default function GenerateProjectPage() {
             fontSize: "18px",
             fontWeight: 600,
             marginBottom: "24px",
-            color: "#111",
-            position: "sticky",
-            top: "0",
-            background: "#f8fafc",
-            padding: "12px 0",
-            borderBottom: "1px solid #e5e7eb"
+            color: "#111"
           }}>
             Source Citations
           </h2>
