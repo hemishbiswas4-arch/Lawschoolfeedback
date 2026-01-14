@@ -41,10 +41,34 @@ function groupBySource(chunks: RetrievedChunk[]) {
 export default function QueryPage() {
   const { id: projectId } = useParams<{ id: string }>()
 
+  // Cache key for this project's query
+  const queryCacheKey = projectId ? `query_${projectId}` : null
+
   const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(false)
   const [retrievedChunks, setRetrievedChunks] = useState<RetrievedChunk[]>([])
   const [sourceTitles, setSourceTitles] = useState<Record<string, string>>({})
+  const [loadedFromCache, setLoadedFromCache] = useState(false)
+
+  /* ---------- load cached query on mount ---------- */
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && queryCacheKey) {
+      const cachedQuery = localStorage.getItem(queryCacheKey)
+      if (cachedQuery) {
+        setQuery(cachedQuery)
+        setLoadedFromCache(true)
+      }
+    }
+  }, [queryCacheKey])
+
+  /* ---------- save query to cache when it changes ---------- */
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && queryCacheKey && query) {
+      localStorage.setItem(queryCacheKey, query)
+    }
+  }, [query, queryCacheKey])
 
   /* ---------- load source titles once ---------- */
 
@@ -120,6 +144,11 @@ export default function QueryPage() {
         console.log(`Stored ${normalised.length} chunks in sessionStorage`)
       } catch (e) {
         console.error("Failed to store chunks in sessionStorage:", e)
+      }
+
+      // Clear the cached query since user has successfully moved to next step
+      if (queryCacheKey) {
+        localStorage.removeItem(queryCacheKey)
       }
     }
   }
@@ -231,6 +260,20 @@ export default function QueryPage() {
             </div>
           </div>
         </div>
+
+        {loadedFromCache && (
+          <div style={{
+            padding: "8px 12px",
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: "6px",
+            fontSize: "12px",
+            color: "#166534",
+            marginBottom: "24px"
+          }}>
+            ✓ Query text restored from previous session
+          </div>
+        )}
 
         {/* QUERY INPUT CARD */}
         <div
