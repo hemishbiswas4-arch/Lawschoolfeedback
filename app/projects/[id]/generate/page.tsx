@@ -361,23 +361,32 @@ export default function GenerateProjectPage() {
   /* ================= MAIN RENDER ================= */
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1.3fr 1fr",
-        gap: "40px",
-        padding: "60px",
-        maxWidth: "1400px",
-        margin: "0 auto",
-      }}
-    >
-      {/* ========== LEFT: PROJECT ========== */}
-
-      <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-          <h1 style={{ fontSize: "26px", fontWeight: 700, margin: 0 }}>
-            Generated Research Project
-          </h1>
+    <div style={{ minHeight: "100vh", background: "#f9fafb" }}>
+      {/* ========== HEADER (FULL WIDTH) ========== */}
+      <div style={{
+        background: "#ffffff",
+        borderBottom: "1px solid #e5e7eb",
+        padding: "20px 60px",
+        position: "sticky",
+        top: 0,
+        zIndex: 10,
+        boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.1)"
+      }}>
+        <div style={{
+          maxWidth: "1400px",
+          margin: "0 auto",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center"
+        }}>
+          <div>
+            <h1 style={{ fontSize: "26px", fontWeight: 700, margin: 0 }}>
+              Generated Research Project
+            </h1>
+            <p style={{ fontSize: "14px", color: "#6b7280", margin: "4px 0 0 0" }}>
+              Query: <em>{queryText}</em>
+            </p>
+          </div>
           <div style={{ display: "flex", gap: "8px" }}>
             <button
               onClick={() => copyText(false)}
@@ -398,279 +407,340 @@ export default function GenerateProjectPage() {
           </div>
         </div>
 
-        <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "32px" }}>
-          Query: <em>{queryText}</em>
-        </p>
+        {/* Status messages in header */}
+        <div style={{ maxWidth: "1400px", margin: "16px auto 0 auto" }}>
+          {loadedFromCache && (
+            <div style={{
+              display: "inline-block",
+              padding: "6px 10px",
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: "4px",
+              marginRight: "12px",
+              fontSize: "12px",
+              color: "#166534"
+            }}>
+              ✓ Cached analysis
+            </div>
+          )}
 
-        {loadedFromCache && (
-          <div style={{
-            padding: "8px 12px",
-            background: "#f0fdf4",
-            border: "1px solid #bbf7d0",
-            borderRadius: "6px",
-            marginBottom: "24px",
-            fontSize: "12px",
-            color: "#166534"
-          }}>
-            ✓ Analysis loaded from cache (for faster performance)
-          </div>
-        )}
-
-        {selectedApproach?.argumentation_line && (
-          <div
-            style={{
-              padding: "12px 16px",
+          {selectedApproach?.argumentation_line && (
+            <div style={{
+              display: "inline-block",
+              padding: "6px 10px",
               background: "#f0f9ff",
               border: "1px solid #bae6fd",
-              borderRadius: "8px",
-              marginBottom: "24px",
-              fontSize: "13px",
-            }}
-          >
-            <strong>Selected Approach:</strong> {selectedApproach.argumentation_line.title}
-            {selectedApproach.tone && (
-              <span style={{ marginLeft: "12px", color: "#6b7280" }}>
-                · Tone: {selectedApproach.tone}
-              </span>
-            )}
-            {selectedApproach.structure_type && (
-              <span style={{ marginLeft: "12px", color: "#6b7280" }}>
-                · Structure: {selectedApproach.structure_type}
-              </span>
-            )}
-          </div>
-        )}
+              borderRadius: "4px",
+              marginRight: "12px",
+              fontSize: "12px",
+            }}>
+              <strong>{selectedApproach.argumentation_line.title}</strong>
+              {selectedApproach.tone && (
+                <span style={{ marginLeft: "8px", color: "#6b7280" }}>
+                  · {selectedApproach.tone}
+                </span>
+              )}
+              {selectedApproach.structure_type && (
+                <span style={{ marginLeft: "8px", color: "#6b7280" }}>
+                  · {selectedApproach.structure_type}
+                </span>
+              )}
+            </div>
+          )}
 
-        {citationQualityScore !== null && (
-          <div
-            style={{
-              padding: "12px 16px",
+          {citationQualityScore !== null && (
+            <div style={{
+              display: "inline-block",
+              padding: "6px 10px",
               background: citationQualityScore >= 80 ? "#f0fdf4" : citationQualityScore >= 60 ? "#fefce8" : "#fef2f2",
               border: `1px solid ${citationQualityScore >= 80 ? "#bbf7d0" : citationQualityScore >= 60 ? "#fde047" : "#fecaca"}`,
-              borderRadius: "8px",
-              marginBottom: "24px",
-              fontSize: "13px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-              <strong>Citation Quality Score:</strong>
+              borderRadius: "4px",
+              fontSize: "12px",
+            }}>
+              <strong>Citation Score:</strong>{" "}
               <span style={{
-                fontSize: "16px",
                 fontWeight: "bold",
                 color: citationQualityScore >= 80 ? "#16a34a" : citationQualityScore >= 60 ? "#ca8a04" : "#dc2626"
               }}>
                 {citationQualityScore}/100
               </span>
+              {coverageAnalysis && (
+                <span style={{ marginLeft: "8px", color: "#6b7280" }}>
+                  • {coverageAnalysis.primary_law_coverage || "N/A"} coverage
+                </span>
+              )}
             </div>
-            {coverageAnalysis && (
-              <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>
-                Primary Law Coverage: {coverageAnalysis.primary_law_coverage || "N/A"} •
-                Citations per Section: {coverageAnalysis.citation_density || "N/A"}
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
+      </div>
 
-        {reasoning.sections.map(section => (
-          <div key={section.section_index} style={{ marginBottom: "40px" }}>
-            <h2 style={{ fontSize: "20px", fontWeight: 600, marginBottom: "16px" }}>
-              {section.title}
-            </h2>
+      {/* ========== MAIN CONTENT GRID ========== */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "0",
+          maxWidth: "1400px",
+          margin: "0 auto",
+          minHeight: "calc(100vh - 120px)", // Account for header height
+        }}
+      >
+        {/* ========== LEFT: PROJECT CONTENT ========== */}
+        <div style={{
+          padding: "40px",
+          background: "#ffffff",
+          borderRight: "1px solid #e5e7eb",
+          overflowY: "auto",
+          maxHeight: "calc(100vh - 120px)",
+        }}>
+          {reasoning.sections.map(section => (
+            <div key={section.section_index} style={{ marginBottom: "40px" }}>
+              <h2 style={{
+                fontSize: "20px",
+                fontWeight: 600,
+                marginBottom: "16px",
+                color: "#111",
+                borderBottom: "2px solid #e5e7eb",
+                paddingBottom: "8px"
+              }}>
+                {section.title}
+              </h2>
 
-            {section.paragraphs.map(p => {
+              {section.paragraphs.map(p => {
+                const paraKey = `${section.section_index}.${p.paragraph_index}`
+
+                return (
+                  <div
+                    key={paraKey}
+                    style={{
+                      marginBottom: "24px",
+                      paddingLeft: "16px",
+                      borderLeft: "3px solid #e5e7eb",
+                      position: "relative"
+                    }}
+                  >
+                    <div style={{
+                      position: "absolute",
+                      left: "-12px",
+                      top: "0",
+                      background: "#6b7280",
+                      color: "#fff",
+                      fontSize: "10px",
+                      fontWeight: 600,
+                      padding: "2px 6px",
+                      borderRadius: "10px",
+                      border: "2px solid #ffffff"
+                    }}>
+                      §{paraKey}
+                    </div>
+                    <p style={{
+                      fontSize: "15px",
+                      lineHeight: 1.7,
+                      margin: "0",
+                      color: "#374151",
+                      paddingTop: "4px"
+                    }}>
+                      {p.text}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* ========== RIGHT: TRACEABILITY ========== */}
+        <div style={{
+          padding: "40px",
+          background: "#f8fafc",
+          overflowY: "auto",
+          maxHeight: "calc(100vh - 120px)",
+        }}>
+          <h2 style={{
+            fontSize: "18px",
+            fontWeight: 600,
+            marginBottom: "24px",
+            color: "#111",
+            position: "sticky",
+            top: "0",
+            background: "#f8fafc",
+            padding: "12px 0",
+            borderBottom: "1px solid #e5e7eb"
+          }}>
+            Source Citations
+          </h2>
+
+          {reasoning.sections.map(section =>
+            section.paragraphs.map(p => {
               const paraKey = `${section.section_index}.${p.paragraph_index}`
 
               return (
-                <p
-                  key={paraKey}
+                <div
+                  key={`trace-${paraKey}`}
                   style={{
-                    fontSize: "15px",
-                    lineHeight: 1.7,
-                    marginBottom: "20px",
+                    marginBottom: "32px",
+                    padding: "16px",
+                    background: "#ffffff",
+                    borderRadius: "8px",
+                    border: "1px solid #e5e7eb",
+                    boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.1)"
                   }}
                 >
-                  {p.text}
-                </p>
-              )
-            })}
-          </div>
-        ))}
-      </div>
-
-      {/* ========== RIGHT: TRACEABILITY ========== */}
-
-      <div>
-        <h2 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "20px" }}>
-          Traceability Panel
-        </h2>
-
-        {reasoning.sections.map(section =>
-          section.paragraphs.map(p => {
-            const paraKey = `${section.section_index}.${p.paragraph_index}`
-
-            return (
-              <div
-                key={`trace-${paraKey}`}
-                style={{
-                  marginBottom: "24px",
-                  paddingBottom: "16px",
-                  borderBottom: "1px solid #e5e7eb",
-                }}
-              >
-                <div
-                  style={{
+                  <div style={{
                     fontSize: "14px",
                     fontWeight: 600,
-                    marginBottom: "8px",
-                  }}
-                >
-                  §{paraKey}
-                </div>
+                    marginBottom: "12px",
+                    color: "#111",
+                    borderBottom: "1px solid #f3f4f6",
+                    paddingBottom: "8px"
+                  }}>
+                    §{paraKey} - {section.title}
+                  </div>
 
-                {p.citations && p.citations.length > 0
-                  ? p.citations.map((citation, idx) => {
-                      const meta = evidenceIndex[citation.evidence_id]
-                      if (!meta) return null
+                  {p.citations && p.citations.length > 0
+                    ? p.citations.map((citation, idx) => {
+                        const meta = evidenceIndex[citation.evidence_id]
+                        if (!meta) return null
 
-                      const sourceTitle = sourceTitles[meta.source_id] || meta.source_id
-                      const usageTypeColors: Record<string, string> = {
-                        direct: "#dc2626", // red for direct quotes
-                        substantial: "#ea580c", // orange for substantial use
-                        reference: "#6b7280", // gray for general reference
-                      }
-                      const usageTypeLabels: Record<string, string> = {
-                        direct: "Direct Quote",
-                        substantial: "Substantial Use",
-                        reference: "Reference",
-                      }
+                        const sourceTitle = sourceTitles[meta.source_id] || meta.source_id
+                        const usageTypeColors: Record<string, string> = {
+                          direct: "#dc2626", // red for direct quotes
+                          substantial: "#ea580c", // orange for substantial use
+                          reference: "#6b7280", // gray for general reference
+                        }
+                        const usageTypeLabels: Record<string, string> = {
+                          direct: "Direct Quote",
+                          substantial: "Substantial Use",
+                          reference: "Reference",
+                        }
 
-                      return (
-                        <div
-                          key={`${paraKey}-citation-${idx}`}
-                          style={{
-                            fontSize: "12px",
-                            marginBottom: "12px",
-                            padding: "10px",
-                            background: "#f9fafb",
-                            borderRadius: "6px",
-                            borderLeft: `3px solid ${usageTypeColors[citation.usage_type] || "#6b7280"}`,
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                            <span
-                              style={{
-                                fontSize: "10px",
-                                fontWeight: 600,
-                                color: usageTypeColors[citation.usage_type] || "#6b7280",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.5px",
-                              }}
-                            >
-                              {usageTypeLabels[citation.usage_type] || citation.usage_type}
-                            </span>
-                          </div>
-                          <div style={{ marginBottom: "4px" }}>
-                            <strong>Source:</strong> {sourceTitle}
-                          </div>
-                          <div style={{ marginBottom: "4px" }}>
-                            <strong>Page:</strong> {meta.page_number},{" "}
-                            <strong>Paragraph:</strong> {meta.paragraph_index}
-                            {citation.char_start !== undefined && citation.char_end !== undefined && (
-                              <span style={{ marginLeft: "8px", color: "#6b7280" }}>
-                                · Chars {citation.char_start}-{citation.char_end}
+                        return (
+                          <div
+                            key={`${paraKey}-citation-${idx}`}
+                            style={{
+                              fontSize: "12px",
+                              marginBottom: idx < p.citations!.length - 1 ? "12px" : "0",
+                              padding: "12px",
+                              background: "#f9fafb",
+                              borderRadius: "6px",
+                              borderLeft: `3px solid ${usageTypeColors[citation.usage_type] || "#6b7280"}`,
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: 600,
+                                  color: usageTypeColors[citation.usage_type] || "#6b7280",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.5px",
+                                  background: `${usageTypeColors[citation.usage_type] || "#6b7280"}15`,
+                                  padding: "2px 6px",
+                                  borderRadius: "3px"
+                                }}
+                              >
+                                {usageTypeLabels[citation.usage_type] || citation.usage_type}
                               </span>
-                            )}
-                          </div>
-                          {citation.usage_type === "direct" && citation.quoted_text && (
-                            <div
-                              style={{
-                                marginTop: "6px",
-                                padding: "8px",
+                            </div>
+                            <div style={{ marginBottom: "6px", fontWeight: 500 }}>
+                              {sourceTitle}
+                            </div>
+                            <div style={{ marginBottom: "6px", color: "#6b7280" }}>
+                              Page {meta.page_number}, Paragraph {meta.paragraph_index}
+                              {citation.char_start !== undefined && citation.char_end !== undefined && (
+                                <span style={{ marginLeft: "8px" }}>
+                                  • Chars {citation.char_start}-{citation.char_end}
+                                </span>
+                              )}
+                            </div>
+                            {citation.usage_type === "direct" && citation.quoted_text && (
+                              <div style={{
+                                marginTop: "8px",
+                                padding: "10px",
                                 background: "#fff",
                                 border: "1px solid #e5e7eb",
                                 borderRadius: "4px",
                                 fontFamily: "monospace",
                                 fontSize: "11px",
                                 color: "#1f2937",
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, marginBottom: "4px", color: "#dc2626" }}>
-                                Direct Quote:
+                              }}>
+                                <div style={{ fontWeight: 600, marginBottom: "4px", color: "#dc2626", fontSize: "10px" }}>
+                                  DIRECT QUOTE:
+                                </div>
+                                "{citation.quoted_text}"
                               </div>
-                              "{citation.quoted_text}"
-                            </div>
-                          )}
-                          {citation.usage_type === "substantial" && citation.excerpt && (
-                            <div
-                              style={{
-                                marginTop: "6px",
-                                padding: "8px",
+                            )}
+                            {citation.usage_type === "substantial" && citation.excerpt && (
+                              <div style={{
+                                marginTop: "8px",
+                                padding: "10px",
                                 background: "#fff",
                                 border: "1px solid #e5e7eb",
                                 borderRadius: "4px",
                                 fontSize: "11px",
                                 color: "#1f2937",
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, marginBottom: "4px", color: "#ea580c" }}>
-                                Substantial Use:
+                              }}>
+                                <div style={{ fontWeight: 600, marginBottom: "4px", color: "#ea580c", fontSize: "10px" }}>
+                                  SUBSTANTIAL USE:
+                                </div>
+                                {citation.excerpt}
                               </div>
-                              {citation.excerpt}
-                            </div>
-                          )}
-                          {citation.usage_type === "reference" && (
-                            <div
-                              style={{
-                                marginTop: "6px",
+                            )}
+                            {citation.usage_type === "reference" && (
+                              <div style={{
+                                marginTop: "8px",
                                 fontStyle: "italic",
                                 color: "#6b7280",
                                 fontSize: "11px",
-                              }}
-                            >
-                              “{meta.excerpt}…”
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })
-                  : p.evidence_ids.map(eid => {
-                      const meta = evidenceIndex[eid]
-                      if (!meta) return null
-
-                      const sourceTitle = sourceTitles[meta.source_id] || meta.source_id
-
-                      return (
-                        <div
-                          key={`${paraKey}-${eid}`}
-                          style={{
-                            fontSize: "12px",
-                            marginBottom: "10px",
-                            color: "#374151",
-                          }}
-                        >
-                          <div>
-                            <strong>Source:</strong> {sourceTitle}
+                                padding: "8px",
+                                background: "#f3f4f6",
+                                borderRadius: "4px"
+                              }}>
+                                "{meta.excerpt}…"
+                              </div>
+                            )}
                           </div>
-                          <div>
-                            <strong>Page:</strong> {meta.page_number},{" "}
-                            <strong>Paragraph:</strong> {meta.paragraph_index}
-                          </div>
+                        )
+                      })
+                    : p.evidence_ids.map(eid => {
+                        const meta = evidenceIndex[eid]
+                        if (!meta) return null
+
+                        const sourceTitle = sourceTitles[meta.source_id] || meta.source_id
+
+                        return (
                           <div
+                            key={`${paraKey}-${eid}`}
                             style={{
-                              marginTop: "4px",
-                              fontStyle: "italic",
-                              color: "#6b7280",
+                              fontSize: "12px",
+                              marginBottom: "8px",
+                              padding: "10px",
+                              background: "#f9fafb",
+                              borderRadius: "6px",
+                              border: "1px solid #e5e7eb"
                             }}
                           >
-                            “{meta.excerpt}…”
+                            <div style={{ marginBottom: "4px", fontWeight: 500 }}>
+                              {sourceTitle}
+                            </div>
+                            <div style={{ marginBottom: "4px", color: "#6b7280" }}>
+                              Page {meta.page_number}, Paragraph {meta.paragraph_index}
+                            </div>
+                            <div style={{
+                              fontStyle: "italic",
+                              color: "#6b7280",
+                              fontSize: "11px"
+                            }}>
+                              "{meta.excerpt}…"
+                            </div>
                           </div>
-                        </div>
-                      )
-                    })}
-              </div>
-            )
-          })
-        )}
+                        )
+                      })}
+                </div>
+              )
+            })
+          )}
+        </div>
       </div>
     </div>
   )
