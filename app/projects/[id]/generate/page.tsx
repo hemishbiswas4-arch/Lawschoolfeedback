@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
+import Link from "next/link"
 
 /* ================= TYPES ================= */
 
@@ -387,7 +388,32 @@ export default function GenerateProjectPage() {
               Query: <em>{queryText}</em>
             </p>
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <Link
+              href={`/projects/${projectId}/synthesize?query=${encodeURIComponent(queryText || "")}`}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                background: "#ffffff",
+                color: "#374151",
+                fontSize: "12px",
+                fontWeight: 500,
+                textDecoration: "none",
+                border: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#f9fafb"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#ffffff"
+              }}
+            >
+              ← Back to Synthesis
+            </Link>
             <button
               onClick={() => copyText(false)}
               style={{
