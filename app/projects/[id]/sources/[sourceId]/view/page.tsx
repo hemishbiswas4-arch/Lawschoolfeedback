@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useParams, usePathname } from "next/navigation"
+import Link from "next/link"
 
 /* ================= TYPES ================= */
 
@@ -122,6 +123,33 @@ export default function SourceDetailPage() {
           fontSize: "13px",
         }}
       >
+        <div style={{ marginBottom: "16px" }}>
+          <Link
+            href={`/projects/${projectId}/sources/${sourceId}`}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "4px",
+              background: "#ffffff",
+              color: "#374151",
+              fontSize: "12px",
+              fontWeight: 500,
+              textDecoration: "none",
+              border: "1px solid #e5e7eb",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              transition: "all 0.2s"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#f9fafb"
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#ffffff"
+            }}
+          >
+            ← Back to Source
+          </Link>
+        </div>
         {loadingChunks && (
           <div style={{ marginBottom: "12px" }}>
             <div style={{ fontSize: "12px", marginBottom: "4px" }}>

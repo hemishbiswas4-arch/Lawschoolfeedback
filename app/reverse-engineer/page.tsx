@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
+import Link from "next/link"
 
 /* ================= SOURCE CATEGORY CONFIG ================= */
 
@@ -349,6 +350,33 @@ export default function ReverseEngineerPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#f9fafb", fontFamily: "sans-serif" }}>
       <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "40px 20px" }}>
+        <div style={{ marginBottom: "16px" }}>
+          <Link
+            href="/"
+            style={{
+              padding: "8px 16px",
+              borderRadius: "6px",
+              background: "#ffffff",
+              color: "#374151",
+              fontSize: "14px",
+              fontWeight: 500,
+              textDecoration: "none",
+              border: "1px solid #e5e7eb",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "all 0.2s"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#f9fafb"
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#ffffff"
+            }}
+          >
+            ← Back to Home
+          </Link>
+        </div>
         <h1 style={{ fontSize: "28px", fontWeight: 700, marginBottom: "8px" }}>
           Reverse Engineering Analysis
         </h1>

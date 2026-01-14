@@ -267,11 +267,38 @@ export default function ProjectsPage() {
       <div style={styles.container}>
         {/* Header */}
         <div style={styles.header}>
-          <div>
-            <h1 style={styles.title}>Projects</h1>
-            <p style={styles.subtitle}>
-              Build research and written work directly from sources.
-            </p>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <Link
+              href="/dashboard"
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                background: "#ffffff",
+                color: "#374151",
+                fontSize: "14px",
+                fontWeight: 500,
+                textDecoration: "none",
+                border: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#f9fafb"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#ffffff"
+              }}
+            >
+              ← Back to Dashboard
+            </Link>
+            <div>
+              <h1 style={styles.title}>Projects</h1>
+              <p style={styles.subtitle}>
+                Build research and written work directly from sources.
+              </p>
+            </div>
           </div>
 
           {projects.length > 0 && (

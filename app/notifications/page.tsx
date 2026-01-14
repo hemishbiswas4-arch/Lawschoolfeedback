@@ -38,6 +38,33 @@ export default function NotificationsPage() {
 
   return (
     <div style={{ padding: "2rem", maxWidth: "600px" }}>
+      <div style={{ marginBottom: "16px" }}>
+        <Link
+          href="/dashboard"
+          style={{
+            padding: "8px 16px",
+            borderRadius: "6px",
+            background: "#ffffff",
+            color: "#374151",
+            fontSize: "14px",
+            fontWeight: 500,
+            textDecoration: "none",
+            border: "1px solid #e5e7eb",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            transition: "all 0.2s"
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#f9fafb"
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "#ffffff"
+          }}
+        >
+          ← Back to Dashboard
+        </Link>
+      </div>
       <h1>Notifications</h1>
 
       {notifications.length === 0 && <p>No notifications.</p>}

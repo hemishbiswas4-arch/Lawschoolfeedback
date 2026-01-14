@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { supabase } from "@/lib/supabaseClient"
 import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
 
 type Comment = {
   id: string
@@ -129,6 +130,33 @@ export default function DocumentViewerPage() {
           overflowY: "auto",
         }}
       >
+        <div style={{ marginBottom: "16px" }}>
+          <Link
+            href="/dashboard"
+            style={{
+              padding: "6px 12px",
+              borderRadius: "4px",
+              background: "#ffffff",
+              color: "#374151",
+              fontSize: "12px",
+              fontWeight: 500,
+              textDecoration: "none",
+              border: "1px solid #e5e7eb",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              transition: "all 0.2s"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#f9fafb"
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#ffffff"
+            }}
+          >
+            ← Back to Dashboard
+          </Link>
+        </div>
         <h3>Comments (Page {pageNumber})</h3>
 
         <div style={{ marginBottom: "0.5rem" }}>

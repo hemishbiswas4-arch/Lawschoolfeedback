@@ -400,6 +400,33 @@ export default function SynthesizePage() {
 
   return (
     <div style={{ padding: "60px", maxWidth: "1200px", margin: "0 auto" }}>
+      <div style={{ marginBottom: "16px" }}>
+        <Link
+          href={`/projects/${projectId}`}
+          style={{
+            padding: "8px 16px",
+            borderRadius: "6px",
+            background: "#ffffff",
+            color: "#374151",
+            fontSize: "14px",
+            fontWeight: 500,
+            textDecoration: "none",
+            border: "1px solid #e5e7eb",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            transition: "all 0.2s"
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#f9fafb"
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "#ffffff"
+          }}
+        >
+          ← Back to Project
+        </Link>
+      </div>
       <h1 style={{ fontSize: "26px", fontWeight: 700, marginBottom: "12px" }}>
         Argumentation Strategy
       </h1>
