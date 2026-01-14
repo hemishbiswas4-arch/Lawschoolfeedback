@@ -49,6 +49,7 @@ export default function QueryPage() {
   const [retrievedChunks, setRetrievedChunks] = useState<RetrievedChunk[]>([])
   const [sourceTitles, setSourceTitles] = useState<Record<string, string>>({})
   const [loadedFromCache, setLoadedFromCache] = useState(false)
+  const [chunksLoadedFromCache, setChunksLoadedFromCache] = useState(false)
 
   /* ---------- load cached query on mount ---------- */
 
@@ -93,6 +94,26 @@ export default function QueryPage() {
     loadSources()
   }, [projectId])
 
+  /* ---------- load cached chunks on mount ---------- */
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && projectId) {
+      const cachedChunks = sessionStorage.getItem(`retrieved_chunks_${projectId}`)
+      if (cachedChunks) {
+        try {
+          const parsedChunks = JSON.parse(cachedChunks) as RetrievedChunk[]
+          setRetrievedChunks(parsedChunks)
+          setChunksLoadedFromCache(true)
+          console.log(`Loaded ${parsedChunks.length} chunks from sessionStorage`)
+        } catch (e) {
+          console.error("Failed to parse cached chunks:", e)
+          // Clear corrupted cache
+          sessionStorage.removeItem(`retrieved_chunks_${projectId}`)
+        }
+      }
+    }
+  }, [projectId])
+
   /* ---------- retrieval ---------- */
 
   const runRetrieval = async () => {
@@ -133,6 +154,7 @@ export default function QueryPage() {
     )
 
     setRetrievedChunks(normalised)
+    setChunksLoadedFromCache(false) // Reset cache indicator for fresh results
 
     // Store chunks in sessionStorage for synthesize page
     if (typeof window !== "undefined" && projectId) {
@@ -269,9 +291,23 @@ export default function QueryPage() {
             borderRadius: "6px",
             fontSize: "12px",
             color: "#166534",
-            marginBottom: "24px"
+            marginBottom: "12px"
           }}>
             ✓ Query text restored from previous session
+          </div>
+        )}
+
+        {chunksLoadedFromCache && (
+          <div style={{
+            padding: "8px 12px",
+            background: "#f0f9ff",
+            border: "1px solid #bae6fd",
+            borderRadius: "6px",
+            fontSize: "12px",
+            color: "#0c4a6e",
+            marginBottom: "24px"
+          }}>
+            ✓ Retrieved evidence restored from previous session
           </div>
         )}
 
