@@ -168,10 +168,6 @@ export default function QueryPage() {
         console.error("Failed to store chunks in sessionStorage:", e)
       }
 
-      // Clear the cached query since user has successfully moved to next step
-      if (queryCacheKey) {
-        localStorage.removeItem(queryCacheKey)
-      }
     }
   }
 
