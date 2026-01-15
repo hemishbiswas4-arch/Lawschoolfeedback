@@ -354,7 +354,7 @@ async function processGenerationQueue() {
     
     // Small delay between queue items to prevent overwhelming the API
     // Longer delay when throttling was recently detected
-    const delay = throttlingDetected ? 3000 : 1000
+    const delay = throttlingDetected() ? 3000 : 1000
     await sleep(delay)
   }
   
