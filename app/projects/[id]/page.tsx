@@ -362,12 +362,8 @@ export default function ProjectPage() {
           setSources(prev => [uploadedSource, ...prev])
         }
 
-        // Clear progress
-        setUploadProgress(prev => {
-          const newProgress = { ...prev }
-          delete newProgress[fileId]
-          return newProgress
-        })
+        // Set progress to 100% on success
+        setUploadProgress(prev => ({ ...prev, [fileId]: 100 }))
 
         return { success: true, fileId }
       }
