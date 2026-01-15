@@ -475,9 +475,12 @@ export async function POST(req: Request) {
   const runId = crypto.randomUUID().slice(0, 8)
   console.log(`SYNTHESIZE [${runId}] Request started`)
 
+  let user_id: string | undefined = undefined
+
   try {
     const body = (await req.json()) as SynthesizeInput
-    const { project_id, query_text, retrieved_chunks, project_type, user_id, user_email } = body
+    let { project_id, query_text, retrieved_chunks, project_type, user_id: userId, user_email } = body
+    user_id = userId
 
     if (!project_id || !query_text?.trim() || !retrieved_chunks?.length) {
       return NextResponse.json(
@@ -588,7 +591,7 @@ export async function POST(req: Request) {
       
       return new Promise<NextResponse>((resolve, reject) => {
         const queuedRequest: QueuedSynthesisRequest = {
-          user_id,
+          user_id: user_id!, // We already checked authentication above
           project_id,
           query_text,
           retrieved_chunks,
