@@ -1391,7 +1391,7 @@ export async function POST(req: Request) {
       
       return new Promise<NextResponse>((resolve, reject) => {
         const queuedRequest: QueuedGenerationRequest = {
-          user_id,
+          user_id: user_id!, // We already checked authentication above
           project_id,
           query_text,
           mode,
