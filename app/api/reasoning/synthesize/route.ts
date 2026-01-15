@@ -586,7 +586,7 @@ export async function POST(req: Request) {
       const queuePosition = synthesisQueue.length + 1
       console.log(`SYNTHESIZE [${runId}] Queue request`, { user_id, queue_length: synthesisQueue.length, queue_position: queuePosition })
       
-      return new Promise((resolve, reject) => {
+      return new Promise<NextResponse>((resolve, reject) => {
         const queuedRequest: QueuedSynthesisRequest = {
           user_id,
           project_id,

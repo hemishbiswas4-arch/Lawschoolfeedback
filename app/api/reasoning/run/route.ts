@@ -1386,7 +1386,7 @@ export async function POST(req: Request) {
       const queuePosition = generationQueue.length + 1
       log(runId, "QUEUE_REQUEST", { user_id, queue_length: generationQueue.length, queue_position: queuePosition })
       
-      return new Promise((resolve, reject) => {
+      return new Promise<NextResponse>((resolve, reject) => {
         const queuedRequest: QueuedGenerationRequest = {
           user_id,
           project_id,
