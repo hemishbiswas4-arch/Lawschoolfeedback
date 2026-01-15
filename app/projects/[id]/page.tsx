@@ -868,7 +868,7 @@ export default function ProjectPage() {
               color: "#6b7280",
               flexWrap: "wrap"
             }}>
-              <span>Maximum 200MB per file</span>
+              <span>Maximum 4MB per file</span>
               <span>Up to 50 files</span>
               <span>PDF format only</span>
               <span>Large uploads may take several minutes to process</span>
