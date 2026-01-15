@@ -685,16 +685,3 @@ export async function POST(req: Request) {
     )
   }
 }
-
-  } catch (err: any) {
-    // Release lock for this user on error
-    if (user_id) {
-      userSynthesisLocks.set(user_id, { inFlight: false, startTime: null })
-    }
-    console.error(`SYNTHESIZE [${runId}] ✗ fatal error:`, err)
-    return NextResponse.json(
-      { error: err?.message ?? "Internal error" },
-      { status: 500 }
-    )
-  }
-}
