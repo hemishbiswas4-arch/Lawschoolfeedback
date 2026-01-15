@@ -1380,10 +1380,8 @@ export async function POST(req: Request) {
 
     // If throttling is detected and queue mode is active, queue the request
     // Note: Queue mode activates automatically when throttling is detected in sendWithRetry
-    const queueStatus = getGenerationQueueStatus(user_id)
-    if (queueStatus.queue_mode_active && mode === "generate") {
-      log(runId, "QUEUE_REQUEST", { user_id, queue_length: generationQueue.length, queue_position: generationQueue.length + 1 })
-      
+    const queueStatusCheck = getGenerationQueueStatus(user_id)
+    if (queueStatusCheck.queue_mode_active && mode === "generate") {
       // Return immediate response with queue info, then process in background
       const queuePosition = generationQueue.length + 1
       log(runId, "QUEUE_REQUEST", { user_id, queue_length: generationQueue.length, queue_position: queuePosition })
@@ -1442,7 +1440,7 @@ export async function POST(req: Request) {
 
     // Acquire lock for this user
     userGenerationLocks.set(user_id, { inFlight: true, startTime: Date.now() })
-    const queueStatus = getGenerationQueueStatus("")
+    const queueStatus = getGenerationQueueStatus(user_id)
     log(runId, "GENERATION_LOCK_ACQUIRED", { project_id: project_id, user_id, queue_mode: queueStatus.queue_mode_active })
 
     try {
