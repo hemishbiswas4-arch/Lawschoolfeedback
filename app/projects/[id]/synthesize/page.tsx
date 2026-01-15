@@ -98,6 +98,47 @@ export default function SynthesizePage() {
 
   // Cache key for synthesis results
   const synthesisCacheKey = projectId && queryText ? `synthesis_${projectId}_${queryText.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}` : null
+  
+  // Cache key for user selections (localStorage - persists across sessions)
+  const selectionsCacheKey = projectId && queryText ? `synthesize_selections_${projectId}_${queryText.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}` : null
+
+  /* ================= LOAD USER SELECTIONS FROM CACHE ================= */
+  
+  useEffect(() => {
+    if (!selectionsCacheKey || typeof window === "undefined") return
+    
+    try {
+      const cachedSelections = localStorage.getItem(selectionsCacheKey)
+      if (cachedSelections) {
+        const parsed = JSON.parse(cachedSelections)
+        if (parsed.selectedApproach) {
+          setSelectedApproach(parsed.selectedApproach)
+        }
+        if (parsed.wordLimit !== undefined) {
+          setWordLimit(parsed.wordLimit)
+        }
+        console.log("Loaded user selections from localStorage cache")
+      }
+    } catch (e) {
+      console.error("Failed to load cached selections:", e)
+      localStorage.removeItem(selectionsCacheKey)
+    }
+  }, [selectionsCacheKey])
+
+  /* ================= SAVE USER SELECTIONS TO CACHE ================= */
+  
+  useEffect(() => {
+    if (!selectionsCacheKey || typeof window === "undefined") return
+    
+    try {
+      localStorage.setItem(selectionsCacheKey, JSON.stringify({
+        selectedApproach,
+        wordLimit,
+      }))
+    } catch (e) {
+      console.warn("Failed to cache user selections:", e)
+    }
+  }, [selectedApproach, wordLimit, selectionsCacheKey])
 
   /* ================= LOAD SYNTHESIS ================= */
 
@@ -132,8 +173,40 @@ export default function SynthesizePage() {
               setSynthesis(parsedSynthesis)
               setLoadedFromCache(true)
 
-              // Set defaults from cached data
-              if (parsedSynthesis.recommended_structure) {
+              // Load user selections from localStorage if available, otherwise set defaults from cached data
+              if (selectionsCacheKey && typeof window !== "undefined") {
+                try {
+                  const cachedSelections = localStorage.getItem(selectionsCacheKey)
+                  if (cachedSelections) {
+                    const parsed = JSON.parse(cachedSelections)
+                    if (parsed.selectedApproach) {
+                      setSelectedApproach(parsed.selectedApproach)
+                    }
+                    if (parsed.wordLimit !== undefined) {
+                      setWordLimit(parsed.wordLimit)
+                    }
+                  } else if (parsedSynthesis.recommended_structure) {
+                    // Set defaults from cached data only if no user selections exist
+                    setSelectedApproach({
+                      argumentation_line_id: null,
+                      tone: parsedSynthesis.personalization_options.tone_options[0]?.value || "",
+                      structure_type: parsedSynthesis.recommended_structure.type,
+                      focus_areas: [],
+                    })
+                  }
+                } catch (e) {
+                  console.error("Failed to load cached selections:", e)
+                  // Fall back to defaults
+                  if (parsedSynthesis.recommended_structure) {
+                    setSelectedApproach({
+                      argumentation_line_id: null,
+                      tone: parsedSynthesis.personalization_options.tone_options[0]?.value || "",
+                      structure_type: parsedSynthesis.recommended_structure.type,
+                      focus_areas: [],
+                    })
+                  }
+                }
+              } else if (parsedSynthesis.recommended_structure) {
                 setSelectedApproach({
                   argumentation_line_id: null,
                   tone: parsedSynthesis.personalization_options.tone_options[0]?.value || "",
@@ -326,8 +399,40 @@ export default function SynthesizePage() {
           }
         }
 
-        // Set defaults
-        if (data.recommended_structure) {
+        // Load user selections from localStorage if available, otherwise set defaults
+        if (selectionsCacheKey && typeof window !== "undefined") {
+          try {
+            const cachedSelections = localStorage.getItem(selectionsCacheKey)
+            if (cachedSelections) {
+              const parsed = JSON.parse(cachedSelections)
+              if (parsed.selectedApproach) {
+                setSelectedApproach(parsed.selectedApproach)
+              }
+              if (parsed.wordLimit !== undefined) {
+                setWordLimit(parsed.wordLimit)
+              }
+            } else if (data.recommended_structure) {
+              // Set defaults from data only if no user selections exist
+              setSelectedApproach({
+                argumentation_line_id: null,
+                tone: data.personalization_options.tone_options[0]?.value || "",
+                structure_type: data.recommended_structure.type,
+                focus_areas: [],
+              })
+            }
+          } catch (e) {
+            console.error("Failed to load cached selections:", e)
+            // Fall back to defaults
+            if (data.recommended_structure) {
+              setSelectedApproach({
+                argumentation_line_id: null,
+                tone: data.personalization_options.tone_options[0]?.value || "",
+                structure_type: data.recommended_structure.type,
+                focus_areas: [],
+              })
+            }
+          }
+        } else if (data.recommended_structure) {
           setSelectedApproach({
             argumentation_line_id: null,
             tone: data.personalization_options.tone_options[0]?.value || "",

@@ -78,6 +78,9 @@ export default function GenerateProjectPage() {
   // Cache key for generation results
   const generationCacheKey = projectId && queryText ?
     `generation_${projectId}_${queryText.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}_${approachParam ? approachParam.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_') : 'default'}` : null
+  
+  // Cache key for user selections (localStorage - persists across sessions)
+  const selectionsCacheKey = projectId && queryText ? `generate_selections_${projectId}_${queryText.slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}` : null
 
   // Helper to truncate long query text for display
   const truncateQuery = (text: string, maxLength = 120) => {
@@ -86,6 +89,49 @@ export default function GenerateProjectPage() {
   }
 
   const isQueryTruncated = queryText && queryText.length > 120
+
+  /* ================= LOAD USER SELECTIONS FROM CACHE ================= */
+  
+  useEffect(() => {
+    if (!selectionsCacheKey || typeof window === "undefined") return
+    
+    try {
+      const cachedSelections = localStorage.getItem(selectionsCacheKey)
+      if (cachedSelections) {
+        const parsed = JSON.parse(cachedSelections)
+        // Only load if not already set (e.g., from URL params)
+        if (parsed.selectedApproach) {
+          setSelectedApproach((prev) => {
+            if (prev) return prev
+            return parsed.selectedApproach
+          })
+        }
+        if (parsed.showFullQuery !== undefined) {
+          setShowFullQuery(parsed.showFullQuery)
+        }
+        console.log("Loaded user selections from localStorage cache")
+      }
+    } catch (e) {
+      console.error("Failed to load cached selections:", e)
+      localStorage.removeItem(selectionsCacheKey)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionsCacheKey])
+
+  /* ================= SAVE USER SELECTIONS TO CACHE ================= */
+  
+  useEffect(() => {
+    if (!selectionsCacheKey || typeof window === "undefined") return
+    
+    try {
+      localStorage.setItem(selectionsCacheKey, JSON.stringify({
+        selectedApproach,
+        showFullQuery,
+      }))
+    } catch (e) {
+      console.warn("Failed to cache user selections:", e)
+    }
+  }, [selectedApproach, showFullQuery, selectionsCacheKey])
 
   useEffect(() => {
     const initialize = async () => {
@@ -104,13 +150,26 @@ export default function GenerateProjectPage() {
         return
       }
 
-      // Parse approach if provided
+      // Parse approach if provided, otherwise try to load from cache
       if (approachParam) {
         try {
           const approach = JSON.parse(approachParam)
           setSelectedApproach(approach)
         } catch (e) {
           console.error("Failed to parse approach:", e)
+        }
+      } else if (selectionsCacheKey && typeof window !== "undefined") {
+        // If no approach param, try to load from localStorage cache
+        try {
+          const cachedSelections = localStorage.getItem(selectionsCacheKey)
+          if (cachedSelections) {
+            const parsed = JSON.parse(cachedSelections)
+            if (parsed.selectedApproach) {
+              setSelectedApproach(parsed.selectedApproach)
+            }
+          }
+        } catch (e) {
+          console.error("Failed to load cached approach:", e)
         }
       }
 
@@ -133,6 +192,21 @@ export default function GenerateProjectPage() {
               setCitationQualityScore(parsedGeneration.citation_quality_score || null)
               setCoverageAnalysis(parsedGeneration.coverage_analysis || null)
               setLoadedFromCache(true)
+
+              // Load selectedApproach from cache if not already set from URL params
+              if (!selectedApproach && selectionsCacheKey && typeof window !== "undefined") {
+                try {
+                  const cachedSelections = localStorage.getItem(selectionsCacheKey)
+                  if (cachedSelections) {
+                    const parsed = JSON.parse(cachedSelections)
+                    if (parsed.selectedApproach) {
+                      setSelectedApproach(parsed.selectedApproach)
+                    }
+                  }
+                } catch (e) {
+                  console.error("Failed to load cached approach:", e)
+                }
+              }
 
               // Fetch source titles for cached data
               const sourceIds = new Set<string>()
