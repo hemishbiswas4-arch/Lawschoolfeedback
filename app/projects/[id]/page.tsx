@@ -273,7 +273,126 @@ export default function ProjectPage() {
     setSelectedFiles(prev => [...prev, ...newFiles])
   }
 
-  /* ================= BATCH UPLOAD SOURCES (OPTIMIZED) ================= */
+  /* ================= INDIVIDUAL FILE UPLOAD ================= */
+
+  const uploadSingleFile = async (fileData: { file: File; id: string }, user: any, baseTitle: string) => {
+    const { file, id: fileId } = fileData
+
+    // Create optimistic source
+    const tempId = `temp-${fileId}-${Date.now()}`
+    const fileTitle = selectedFiles.length === 1
+      ? baseTitle.trim()
+      : `${baseTitle.trim()} — ${file.name}`
+
+    const optimisticSource: Source = {
+      id: tempId,
+      type: sourceType,
+      title: fileTitle,
+      created_at: new Date().toISOString(),
+      optimistic: true,
+    }
+
+    setSources(prev => [optimisticSource, ...prev])
+    setUploadProgress(prev => ({ ...prev, [fileId]: 5 }))
+
+    // Simulate progress
+    let progressValue = 5
+    const progressInterval = setInterval(() => {
+      progressValue = Math.min(progressValue + 2, 90)
+      setUploadProgress(prev => ({ ...prev, [fileId]: progressValue }))
+    }, 500)
+
+    try {
+      // Upload single file
+      const form = new FormData()
+      form.append("file", file)
+      form.append("project_id", id)
+      form.append("type", sourceType)
+      form.append("title", fileTitle)
+      form.append("user_id", user.id)
+
+      console.log(`Uploading file: ${file.name}...`)
+
+      const res = await fetch("/api/sources/upload", {
+        method: "POST",
+        body: form,
+      })
+
+      clearInterval(progressInterval)
+
+      if (!res.ok) {
+        let errorData: any = {}
+        try {
+          errorData = await res.json()
+        } catch {
+          const errorText = await res.text().catch(() => "Upload failed")
+          errorData = { error: errorText }
+        }
+
+        console.error(`Upload failed for ${file.name}:`, res.status, errorData)
+
+        // Remove optimistic source
+        setSources(prev => prev.filter(s => s.id !== tempId))
+
+        // Set error
+        setUploadErrors(prev => ({
+          ...prev,
+          [fileId]: {
+            message: errorData.error || "Upload failed",
+            suggestions: errorData.suggestions
+          }
+        }))
+
+        return { success: false, fileId, error: errorData }
+      } else {
+        const data = await res.json()
+        console.log(`Upload successful for ${file.name}:`, data)
+
+        // Remove optimistic source and add real one
+        setSources(prev => prev.filter(s => s.id !== tempId))
+
+        const result = data.results[0]
+        if (result.status === "ok" && result.sourceId) {
+          const uploadedSource: Source = {
+            id: result.sourceId,
+            type: sourceType,
+            title: result.fileName,
+            created_at: new Date().toISOString(),
+          }
+          setSources(prev => [uploadedSource, ...prev])
+        }
+
+        // Clear progress
+        setUploadProgress(prev => {
+          const newProgress = { ...prev }
+          delete newProgress[fileId]
+          return newProgress
+        })
+
+        return { success: true, fileId }
+      }
+    } catch (err: any) {
+      console.error(`Upload error for ${file.name}:`, err)
+
+      clearInterval(progressInterval)
+
+      // Remove optimistic source
+      setSources(prev => prev.filter(s => s.id !== tempId))
+
+      // Set error
+      setUploadErrors(prev => ({
+        ...prev,
+        [fileId]: {
+          message: err.message || "Network error",
+          suggestions: ["Try uploading again", "Check your internet connection"]
+        }
+      }))
+
+      return { success: false, fileId, error: err }
+    }
+  }
+
+  /* ================= UPLOAD ALL FILES INDIVIDUALLY ================= */
 
   const handleBatchUpload = async () => {
     // Clear previous errors
@@ -302,183 +421,40 @@ export default function ProjectPage() {
     }
 
     const filesToUpload = [...selectedFiles]
-    const tempIds: string[] = []
-
-    // Create optimistic sources for all files
-    filesToUpload.forEach(({ file, id: fileId }) => {
-      const tempId = `temp-${fileId}-${Date.now()}`
-      tempIds.push(tempId)
-      const fileTitle = filesToUpload.length === 1 
-        ? sourceTitle.trim() 
-        : `${sourceTitle.trim()} — ${file.name}`
-      
-      const optimisticSource: Source = {
-        id: tempId,
-        type: sourceType,
-        title: fileTitle,
-        created_at: new Date().toISOString(),
-        optimistic: true,
-      }
-
-      setSources(prev => [optimisticSource, ...prev])
-      setUploadProgress(prev => ({ ...prev, [fileId]: 5 }))
-    })
-
-    // Simulate progress for all files
-    const progressIntervals = filesToUpload.map(({ id: fileId }) => {
-      let progressValue = 5
-      return setInterval(() => {
-        progressValue = Math.min(progressValue + 2, 90)
-        setUploadProgress(prev => ({ ...prev, [fileId]: progressValue }))
-      }, 500)
-    })
+    const results = []
 
     try {
-      // Batch upload all files in a single request
-      const form = new FormData()
-      filesToUpload.forEach(({ file }) => {
-        form.append("file", file)
-      })
-      form.append("project_id", id)
-      form.append("type", sourceType)
-      form.append("title", sourceTitle.trim())
-      form.append("user_id", user.id)
+      // Upload files individually to avoid payload size limits
+      for (const fileData of filesToUpload) {
+        const result = await uploadSingleFile(fileData, user, sourceTitle.trim())
+        results.push(result)
 
-      console.log(`Starting batch upload for ${filesToUpload.length} file(s)...`)
-
-      const res = await fetch("/api/sources/upload", {
-        method: "POST",
-        body: form,
-      })
-
-      // Clear progress intervals
-      progressIntervals.forEach(interval => clearInterval(interval))
-
-      if (!res.ok) {
-        let errorData: any = {}
-        try {
-          errorData = await res.json()
-        } catch {
-          const errorText = await res.text().catch(() => "Upload failed")
-          errorData = { error: errorText }
-        }
-        
-        console.error(`Batch upload failed:`, res.status, errorData)
-        
-        // Handle validation errors (like missing title)
-        if (errorData.errorCode === "MISSING_TITLE" || res.status === 400) {
-          setTitleError(errorData.error || "Title is required")
-          if (errorData.suggestions) {
-            setTitleError(prev => prev + " " + errorData.suggestions.join(" "))
-          }
-        }
-        
-        // Remove all optimistic sources on failure
-        setSources(prev => prev.filter(s => !tempIds.includes(s.id)))
-        filesToUpload.forEach(({ id: fileId }) => {
-          setUploadProgress(prev => {
-            const newProgress = { ...prev }
-            delete newProgress[fileId]
-            return newProgress
-          })
-        })
-        
-        // Show detailed error
-        const errorMessage = errorData.error || "Upload failed"
-        const errorSuggestions = errorData.suggestions || []
-        alert(`Upload failed: ${errorMessage}${errorSuggestions.length > 0 ? "\n\nSuggestions:\n" + errorSuggestions.map((s: string) => `• ${s}`).join("\n") : ""}`)
-        setUploading(false)
-        return
+        // Add small delay between uploads to avoid overwhelming the server
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
 
-      const result = await res.json().catch(() => ({ ok: false, results: [] }))
-      console.log(`Batch upload result:`, result)
+      const successfulUploads = results.filter(r => r.success)
+      const failedUploads = results.filter(r => !r.success)
 
-      // Mark all files as complete
-      filesToUpload.forEach(({ id: fileId }) => {
-        setUploadProgress(prev => ({ ...prev, [fileId]: 100 }))
-      })
+      console.log(`Upload complete: ${successfulUploads.length} successful, ${failedUploads.length} failed`)
 
-      // Wait a moment for backend to process
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // Remove optimistic sources
-      setSources(prev => prev.filter(s => !tempIds.includes(s.id)))
-      
-      // Refresh sources to get real ones
-      const { data: sourceData, error: refreshError } = await supabase
-        .from("project_sources")
-        .select("id, type, title, created_at")
-        .eq("project_id", id)
-        .order("created_at", { ascending: false })
-
-      if (refreshError) {
-        console.error("Error refreshing sources:", refreshError)
-      } else if (sourceData) {
-        setSources(sourceData)
-        console.log(`Refreshed sources, now have ${sourceData.length} sources`)
+      // Clear uploaded files if all succeeded
+      if (failedUploads.length === 0) {
+        setSelectedFiles([])
+        setSourceTitle("")
       }
 
-      // Check for failed files and show detailed errors
-      const failedFiles = result.results?.filter((r: any) => r.status === "failed") || []
-      if (failedFiles.length > 0) {
-        // Store errors for display
-        const errors: Record<string, { message: string; suggestions?: string[] }> = {}
-        failedFiles.forEach((f: any) => {
-          const fileEntry = filesToUpload.find(({ file }) => file.name === f.fileName)
-          if (fileEntry) {
-            errors[fileEntry.id] = {
-              message: f.error || "Upload failed",
-              suggestions: f.suggestions || []
-            }
-          }
-        })
-        setUploadErrors(errors)
-        
-        // Show detailed error alert
-        const errorDetails = failedFiles.map((f: any) => {
-          const suggestions = f.suggestions && f.suggestions.length > 0
-            ? "\n  Suggestions:\n" + f.suggestions.map((s: string) => `    • ${s}`).join("\n")
-            : ""
-          return `• ${f.fileName}: ${f.error}${suggestions}`
-        }).join("\n\n")
-        
-        alert(`Upload complete. ${failedFiles.length} file(s) failed:\n\n${errorDetails}`)
-      } else {
-        console.log(`Successfully uploaded ${filesToUpload.length} file(s)`)
+      // Show summary if there were failures
+      if (failedUploads.length > 0) {
+        alert(`Upload complete: ${successfulUploads.length} files uploaded successfully, ${failedUploads.length} failed. Check individual file status below.`)
       }
+
     } catch (err: any) {
-      // Clear progress intervals
-      progressIntervals.forEach(interval => clearInterval(interval))
-      
-      console.error(`Batch upload error:`, err)
-      
-      // Remove all optimistic sources on error
-      setSources(prev => prev.filter(s => !tempIds.includes(s.id)))
-      filesToUpload.forEach(({ id: fileId }) => {
-        setUploadProgress(prev => {
-          const newProgress = { ...prev }
-          delete newProgress[fileId]
-          return newProgress
-        })
-      })
-      
-      // Show detailed error
-      const errorMessage = err.message || "Unknown error"
-      const suggestions = [
-        "Check your internet connection",
-        "Try uploading again in a few moments",
-        "If the problem persists, contact support"
-      ]
-      alert(`Upload error: ${errorMessage}\n\nSuggestions:\n${suggestions.map(s => `• ${s}`).join("\n")}`)
+      console.error("Upload process error:", err)
+      alert(`Upload process failed: ${err.message || "Unknown error"}`)
+    } finally {
+      setUploading(false)
     }
-
-    setSourceTitle("")
-    setSelectedFiles([])
-    setUploadProgress({})
-    setUploadErrors({})
-    setTitleError("")
-    setUploading(false)
   }
 
   /* ================= DELETE SOURCE ================= */
