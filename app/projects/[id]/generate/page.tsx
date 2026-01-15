@@ -101,7 +101,7 @@ export default function GenerateProjectPage() {
         const parsed = JSON.parse(cachedSelections)
         // Only load if not already set (e.g., from URL params)
         if (parsed.selectedApproach) {
-          setSelectedApproach((prev) => {
+          setSelectedApproach((prev: any) => {
             if (prev) return prev
             return parsed.selectedApproach
           })
