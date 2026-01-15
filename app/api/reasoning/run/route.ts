@@ -1235,9 +1235,12 @@ export async function POST(req: Request) {
   const runId = crypto.randomUUID().slice(0, 8)
   log(runId, "REQUEST_START")
 
+  let user_id: string | undefined = undefined
+
   try {
     const body = (await req.json()) as ReasoningRunInput
-    let { project_id, query_text, mode = "generate", word_limit, approach, user_id, user_email } = body
+    const { project_id, query_text, mode = "generate", word_limit, approach, user_id: userId, user_email } = body
+    user_id = userId
 
     if (!project_id || !query_text?.trim()) {
       return NextResponse.json(
