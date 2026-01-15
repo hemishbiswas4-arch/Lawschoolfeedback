@@ -1239,7 +1239,7 @@ export async function POST(req: Request) {
 
   try {
     const body = (await req.json()) as ReasoningRunInput
-    const { project_id, query_text, mode = "generate", word_limit, approach, user_id: userId, user_email } = body
+    let { project_id, query_text, mode = "generate", word_limit, approach, user_id: userId, user_email } = body
     user_id = userId
 
     if (!project_id || !query_text?.trim()) {
