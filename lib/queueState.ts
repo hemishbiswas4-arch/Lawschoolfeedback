@@ -1,5 +1,5 @@
 // =======================================================
-// FILE: app/lib/queueState.ts
+// FILE: lib/queueState.ts
 // PURPOSE: Shared queue state management for generation and synthesis
 // =======================================================
 
