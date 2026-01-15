@@ -25,16 +25,31 @@ export async function GET(req: Request) {
     )
   }
 
+  // Get user_id from query params or headers
+  const userId = url.searchParams.get("user_id")
+  if (!userId) {
+    return NextResponse.json(
+      { error: "Authentication required. Missing user_id." },
+      { status: 401 }
+    )
+  }
+
+  // Verify source ownership via project ownership
   const { data: source, error } = await supabaseAdmin
     .from("project_sources")
-    .select("storage_path")
+    .select(`
+      storage_path,
+      project_id,
+      projects!inner(owner_id)
+    `)
     .eq("id", sourceId)
+    .eq("projects.owner_id", userId)
     .single()
 
   if (error || !source) {
     return NextResponse.json(
-      { error: "Source not found" },
-      { status: 404 }
+      { error: "Source not found or access denied" },
+      { status: 403 }
     )
   }
 

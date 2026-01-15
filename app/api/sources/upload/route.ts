@@ -8,6 +8,7 @@
 // =======================================================
 
 export const runtime = "nodejs"
+export const maxDuration = 300 // 5 minutes for large file processing
 
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
@@ -211,6 +212,8 @@ export async function POST(req: NextRequest) {
     sourceId?: string
     status: "ok" | "failed"
     error?: string
+    errorCode?: string
+    suggestions?: string[]
   }[] = []
 
   try {
@@ -222,69 +225,259 @@ export async function POST(req: NextRequest) {
     const titleBase = form.get("title") as string | null
     const userId = form.get("user_id") as string | null
 
-    if (!files.length || !projectId || !type || !titleBase || !userId) {
-      return NextResponse.json({ error: "Missing fields" }, { status: 400 })
+    // Enhanced validation with specific error messages
+    if (!files.length) {
+      return NextResponse.json(
+        {
+          error: "No files provided",
+          errorCode: "NO_FILES",
+          suggestions: [
+            "Please select at least one PDF file to upload",
+            "Ensure your files are in PDF format",
+            "Try refreshing the page and selecting files again"
+          ]
+        },
+        { status: 400 }
+      )
     }
 
-    for (const file of files) {
-      let sourceId: string | null = null
+    if (!projectId) {
+      return NextResponse.json(
+        {
+          error: "Project ID is required",
+          errorCode: "MISSING_PROJECT_ID",
+          suggestions: [
+            "Please ensure you're uploading to a valid project",
+            "Try refreshing the page and selecting the project again"
+          ]
+        },
+        { status: 400 }
+      )
+    }
 
-      try {
-        if (file.type !== "application/pdf") {
-          throw new Error("Only PDF allowed")
-        }
+    if (!type) {
+      return NextResponse.json(
+        {
+          error: "Source type is required",
+          errorCode: "MISSING_TYPE",
+          suggestions: [
+            "Please select a source type from the dropdown menu",
+            "Choose the category that best describes your document"
+          ]
+        },
+        { status: 400 }
+      )
+    }
+
+    if (!titleBase || !titleBase.trim()) {
+      return NextResponse.json(
+        {
+          error: "Title is required",
+          errorCode: "MISSING_TITLE",
+          suggestions: [
+            "Please enter a title for your source(s)",
+            "For multiple files, enter a base title (e.g., 'Supreme Court Cases')",
+            "For single files, enter the document title"
+          ]
+        },
+        { status: 400 }
+      )
+    }
+
+    if (!userId) {
+      return NextResponse.json(
+        {
+          error: "User authentication required",
+          errorCode: "MISSING_USER",
+          suggestions: [
+            "Please log in again",
+            "Your session may have expired - try refreshing the page"
+          ]
+        },
+        { status: 401 }
+      )
+    }
+
+    // Verify project ownership before allowing upload
+    const { data: project, error: projectError } = await supabaseAdmin
+      .from("projects")
+      .select("id, owner_id")
+      .eq("id", projectId)
+      .eq("owner_id", userId)
+      .single()
+
+    if (projectError || !project) {
+      return NextResponse.json(
+        {
+          error: "Project not found or access denied",
+          errorCode: "PROJECT_ACCESS_DENIED",
+          suggestions: [
+            "Ensure you have permission to upload to this project",
+            "Check that the project exists and you are the owner",
+            "Try refreshing the page"
+          ]
+        },
+        { status: 403 }
+      )
+    }
+
+    // Process files in parallel with concurrency limit for better performance
+    const CONCURRENCY_LIMIT = 3 // Process 3 files at a time to balance speed and memory
+    const fileBatches: File[][] = []
+    for (let i = 0; i < files.length; i += CONCURRENCY_LIMIT) {
+      fileBatches.push(files.slice(i, i + CONCURRENCY_LIMIT))
+    }
+
+    for (const batch of fileBatches) {
+      await Promise.all(batch.map(async (file) => {
+        let sourceId: string | null = null
+
+        try {
+          // Enhanced file validation
+          if (file.type !== "application/pdf") {
+            throw {
+              message: `File "${file.name}" is not a PDF file`,
+              errorCode: "INVALID_FILE_TYPE",
+              suggestions: [
+                "Only PDF files are supported",
+                "Convert your file to PDF format before uploading",
+                "Ensure the file extension is .pdf"
+              ]
+            }
+          }
+
+          // Check file size (increased to 200MB)
+          const MAX_FILE_SIZE = 200 * 1024 * 1024 // 200MB
+          if (file.size > MAX_FILE_SIZE) {
+            throw {
+              message: `File "${file.name}" exceeds the 200MB size limit (${(file.size / 1024 / 1024).toFixed(2)}MB)`,
+              errorCode: "FILE_TOO_LARGE",
+              suggestions: [
+                "Split large PDFs into smaller files",
+                "Compress the PDF using a PDF compression tool",
+                "Remove unnecessary pages or images from the document",
+                "Contact support if you need to upload larger files"
+              ]
+            }
+          }
+
+          if (file.size < 100) {
+            throw {
+              message: `File "${file.name}" appears to be empty or corrupted`,
+              errorCode: "FILE_CORRUPTED",
+              suggestions: [
+                "Ensure the file is not empty",
+                "Try re-saving or re-exporting the PDF",
+                "Check that the file downloaded completely"
+              ]
+            }
+          }
 
         /* ================= STORE PDF ================= */
 
         sourceId = crypto.randomUUID()
         const path = `${projectId}/${sourceId}.pdf`
 
-        const { error: storageError } = await supabaseAdmin.storage
-          .from("sources")
-          .upload(path, file, { contentType: "application/pdf" })
+          const { error: storageError } = await supabaseAdmin.storage
+            .from("sources")
+            .upload(path, file, {
+              contentType: "application/pdf",
+              upsert: false, // Don't overwrite existing files
+            })
 
-        if (storageError) throw storageError
+          if (storageError) {
+            if (storageError.message?.includes("already exists")) {
+              throw {
+                message: `File "${file.name}" already exists in storage`,
+                errorCode: "FILE_EXISTS",
+                suggestions: [
+                  "Try renaming the file before uploading",
+                  "Delete the existing file first if you want to replace it"
+                ]
+              }
+            }
+            throw {
+              message: `Storage error: ${storageError.message}`,
+              errorCode: "STORAGE_ERROR",
+              suggestions: [
+                "Check your internet connection",
+                "Try uploading again in a few moments",
+                "If the problem persists, contact support"
+              ]
+            }
+          }
 
         /* ================= CREATE SOURCE ================= */
 
-        const title =
-          files.length > 1
-            ? `${titleBase} — ${file.name}`
-            : titleBase
+          const title =
+            files.length > 1
+              ? `${titleBase.trim()} — ${file.name}`
+              : titleBase.trim()
 
-        const { data: source, error: sourceError } = await supabaseAdmin
-          .from("project_sources")
-          .insert({
-            id: sourceId,
-            project_id: projectId,
-            type,
-            title,
-            uploaded_by: userId,
-            storage_path: path,
-            status: "pending",
-          })
-          .select()
-          .single()
+          const { data: source, error: sourceError } = await supabaseAdmin
+            .from("project_sources")
+            .insert({
+              id: sourceId,
+              project_id: projectId,
+              type,
+              title,
+              uploaded_by: userId,
+              storage_path: path,
+              status: "pending",
+            })
+            .select()
+            .single()
 
-        if (sourceError || !source) {
-          throw sourceError ?? new Error("Source insert failed")
-        }
+          if (sourceError || !source) {
+            throw {
+              message: `Database error: ${sourceError?.message || "Source insert failed"}`,
+              errorCode: "DATABASE_ERROR",
+              suggestions: [
+                "Try uploading again",
+                "Check that the project still exists",
+                "If the problem persists, contact support"
+              ]
+            }
+          }
 
-        /* ================= LOAD PDF ================= */
+          /* ================= LOAD PDF ================= */
 
-        const { data: fileData, error: downloadError } =
-          await supabaseAdmin.storage.from("sources").download(path)
+          const { data: fileData, error: downloadError } =
+            await supabaseAdmin.storage.from("sources").download(path)
 
-        if (downloadError || !fileData) {
-          throw downloadError ?? new Error("Failed to download PDF")
-        }
+          if (downloadError || !fileData) {
+            throw {
+              message: `Failed to download PDF: ${downloadError?.message || "Unknown error"}`,
+              errorCode: "DOWNLOAD_ERROR",
+              suggestions: [
+                "The file may have been corrupted during upload",
+                "Try uploading the file again",
+                "Check your internet connection"
+              ]
+            }
+          }
 
-        const buffer = await fileData.arrayBuffer()
+          const buffer = await fileData.arrayBuffer()
 
-        const pdf = await (pdfjs as any).getDocument({
-          data: buffer,
-          disableWorker: true,
-        }).promise
+          let pdf
+          try {
+            pdf = await (pdfjs as any).getDocument({
+              data: buffer,
+              disableWorker: true,
+              verbosity: 0, // Reduce logging for performance
+            }).promise
+          } catch (pdfError: any) {
+            throw {
+              message: `Failed to parse PDF: ${pdfError?.message || "PDF may be corrupted or encrypted"}`,
+              errorCode: "PDF_PARSE_ERROR",
+              suggestions: [
+                "Ensure the PDF is not password-protected",
+                "Try re-saving the PDF in a different PDF viewer",
+                "Check that the PDF is not corrupted",
+                "If the PDF is scanned, ensure it has been OCR'd properly"
+              ]
+            }
+          }
 
         let globalChunkIndex = 0
         let globalCharCursor = 0
@@ -365,28 +558,28 @@ export async function POST(req: NextRequest) {
         /* ================= BATCH INSERT ALL CHUNKS ================= */
 
         const chunksToInsert = allChunks
-          .map((chunk, idx) => {
-            const embedding = embeddingMap.get(idx)
-            if (!embedding) return null
+            .map((chunk, idx) => {
+              const embedding = embeddingMap.get(idx)
+              if (!embedding) return null
 
-            return {
-              project_id: projectId,
-              source_id: source.id,
-              text: chunk.text,
-              page_number: chunk.pageNum,
-              paragraph_index: chunk.paragraphIndex,
-              chunk_index: chunk.chunkIndex,
-              char_start: chunk.charStart,
-              char_end: chunk.charEnd,
-              rects_json: chunk.rects,
-              embedding,
-              checksum: crypto
-                .createHash("sha256")
-                .update(chunk.text)
-                .digest("hex"),
-            }
-          })
-          .filter((c): c is NonNullable<typeof c> => c !== null)
+              return {
+                project_id: projectId,
+                source_id: source.id,
+                text: chunk.text,
+                page_number: chunk.pageNum,
+                paragraph_index: chunk.paragraphIndex,
+                chunk_index: chunk.chunkIndex,
+                char_start: chunk.charStart,
+                char_end: chunk.charEnd,
+                rects_json: chunk.rects,
+                embedding,
+                checksum: crypto
+                  .createHash("sha256")
+                  .update(chunk.text)
+                  .digest("hex"),
+              }
+            })
+            .filter((c): c is NonNullable<typeof c> => c !== null)
 
         // Insert in batches of 500 to avoid payload size limits
         const BATCH_SIZE = 500
@@ -423,22 +616,44 @@ export async function POST(req: NextRequest) {
           sourceId: source.id,
           status: "ok",
         })
-      } catch (err: any) {
-        console.error("UPLOAD ✗ file failed:", file.name, err)
+        } catch (err: any) {
+          console.error("UPLOAD ✗ file failed:", file.name, err)
 
-        if (sourceId) {
-          await supabaseAdmin
-            .from("project_sources")
-            .update({ status: "failed" })
-            .eq("id", sourceId)
+          if (sourceId) {
+            try {
+              await supabaseAdmin
+                .from("project_sources")
+                .update({ status: "failed" })
+                .eq("id", sourceId)
+            } catch (updateErr) {
+              console.error("Failed to update source status:", updateErr)
+            }
+          }
+
+          // Clean up storage if source was created but processing failed
+          if (sourceId) {
+            try {
+              await supabaseAdmin.storage
+                .from("sources")
+                .remove([`${projectId}/${sourceId}.pdf`])
+            } catch (cleanupErr) {
+              console.error("Failed to cleanup storage:", cleanupErr)
+            }
+          }
+
+          results.push({
+            fileName: file.name,
+            status: "failed",
+            error: err?.message ?? err?.toString() ?? "File processing error",
+            errorCode: err?.errorCode || "UNKNOWN_ERROR",
+            suggestions: err?.suggestions || [
+              "Try uploading the file again",
+              "Check that the file is a valid PDF",
+              "If the problem persists, contact support"
+            ],
+          })
         }
-
-        results.push({
-          fileName: file.name,
-          status: "failed",
-          error: err?.message ?? "File processing error",
-        })
-      }
+      }))
     }
 
     console.log("UPLOAD ✓ batch complete")
@@ -446,7 +661,15 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("UPLOAD ✗ fatal", err)
     return NextResponse.json(
-      { error: err?.message ?? "Server error" },
+      {
+        error: err?.message ?? "Server error",
+        errorCode: err?.errorCode || "SERVER_ERROR",
+        suggestions: err?.suggestions || [
+          "Try uploading again in a few moments",
+          "Check your internet connection",
+          "If the problem persists, contact support"
+        ]
+      },
       { status: 500 }
     )
   }

@@ -2,8 +2,9 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useParams, usePathname } from "next/navigation"
+import { useParams, usePathname, useRouter } from "next/navigation"
 import Link from "next/link"
+import { supabase } from "@/lib/supabaseClient"
 
 /* ================= PAGE ================= */
 
@@ -41,7 +42,11 @@ export default function SourceDetailPage() {
   useEffect(() => {
     const loadPdfUrl = async () => {
       try {
-        const res = await fetch(`/api/sources/${sourceId}/pdf`)
+        const { data: sessionData } = await supabase.auth.getSession()
+        const user = sessionData.session?.user
+        if (!user) return
+
+        const res = await fetch(`/api/sources/${sourceId}/pdf?user_id=${encodeURIComponent(user.id)}`)
         if (!res.ok) return
         const { url } = await res.json()
         setPdfUrl(url)
@@ -60,7 +65,11 @@ export default function SourceDetailPage() {
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/sources/${sourceId}/chunks`)
+        const { data: sessionData } = await supabase.auth.getSession()
+        const user = sessionData.session?.user
+        if (!user) return
+
+        const res = await fetch(`/api/sources/${sourceId}/chunks?user_id=${encodeURIComponent(user.id)}`)
         if (!res.ok) return
 
         const json = await res.json()

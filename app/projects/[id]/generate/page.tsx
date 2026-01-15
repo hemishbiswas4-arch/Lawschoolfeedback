@@ -67,6 +67,13 @@ export default function GenerateProjectPage() {
   const [copyWithCitations, setCopyWithCitations] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [showFullQuery, setShowFullQuery] = useState(false)
+  const [queueStatus, setQueueStatus] = useState<{
+    in_queue: boolean
+    queue_position: number | null
+    estimated_wait_seconds: number | null
+    queue_mode_active: boolean
+    total_queue_length: number
+  } | null>(null)
 
   // Cache key for generation results
   const generationCacheKey = projectId && queryText ?
@@ -167,8 +174,27 @@ export default function GenerateProjectPage() {
 
       const generate = async () => {
       try {
-        // Usage logging is handled in the API route
+        // Ensure user is authenticated
+        if (!user) {
+          setError("Authentication required. Please log in and try again.")
+          setLoading(false)
+          router.replace("/login")
+          return
+        }
 
+        // Check queue status before making request (optional - just for info)
+        try {
+          const queueStatusRes = await fetch(`/api/reasoning/queue-status?user_id=${encodeURIComponent(user.id)}&type=generation`)
+          if (queueStatusRes.ok) {
+            const queueData = await queueStatusRes.json()
+            setQueueStatus(queueData)
+          }
+        } catch (e) {
+          // Queue status check failed, continue anyway
+          console.warn("Failed to check queue status:", e)
+        }
+
+        // Usage logging is handled in the API route
         const requestBody: any = {
           project_id: projectId,
           query_text: queryText,
@@ -195,15 +221,65 @@ export default function GenerateProjectPage() {
         if (!res.ok) {
           const errorText = await res.text()
 
+          // Handle authentication errors
+          if (res.status === 401) {
+            throw new Error("Authentication required. Please log in and try again.")
+          }
+
+          // Handle authorization errors
+          if (res.status === 403) {
+            throw new Error("Access denied. You don't have permission to access this project.")
+          }
+
           // Handle specific case where generation is busy
           if (res.status === 429 && errorText.includes("Please try again in 5 minutes")) {
             throw new Error("Generation is currently busy with another request. Please try again in 5 minutes.")
+          }
+
+          // Handle queue timeout
+          if (res.status === 504 && errorText.includes("timed out in queue")) {
+            throw new Error("Request timed out in queue. The system is experiencing high load. Please try again in a few minutes.")
           }
 
           throw new Error(`Generation failed: ${res.status} ${errorText}`)
         }
 
         const json = await res.json()
+        
+        // Check if response indicates queued status (202 Accepted)
+        if (res.status === 202 || json.queued) {
+          setQueueStatus({
+            in_queue: true,
+            queue_position: json.queue_position || null,
+            estimated_wait_seconds: json.estimated_wait_seconds || null,
+            queue_mode_active: true,
+            total_queue_length: json.total_queue_length || 0,
+          })
+          
+          // Start polling for queue status and retry when queue clears
+          const pollInterval = setInterval(async () => {
+            try {
+              const statusRes = await fetch(`/api/reasoning/queue-status?user_id=${encodeURIComponent(user.id)}&type=generation`)
+              if (statusRes.ok) {
+                const status = await statusRes.json()
+                setQueueStatus(status)
+                if (!status.in_queue) {
+                  clearInterval(pollInterval)
+                  // Retry the request after queue clears
+                  hasRequestedRef.current = false
+                  setTimeout(() => {
+                    generate()
+                  }, 1000)
+                }
+              }
+            } catch (e) {
+              console.error("Queue status poll error:", e)
+            }
+          }, 2000)
+          
+          // Cleanup on unmount
+          return () => clearInterval(pollInterval)
+        }
 
         if (!json?.reasoning_output || !json?.evidence_index) {
           throw new Error("Invalid generation payload")
@@ -265,7 +341,39 @@ export default function GenerateProjectPage() {
   /* ================= UI STATES ================= */
 
   if (loading) {
-    return <div style={{ padding: "80px" }}>Generating project…</div>
+    return (
+      <div style={{ padding: "80px", textAlign: "center" }}>
+        <div style={{ fontSize: "16px", marginBottom: "12px" }}>
+          Generating project…
+        </div>
+        {queueStatus?.in_queue && (
+          <div style={{
+            maxWidth: "600px",
+            margin: "16px auto 0",
+            padding: "16px",
+            background: "#fef3c7",
+            border: "1px solid #f59e0b",
+            borderRadius: "8px",
+            color: "#92400e"
+          }}>
+            <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
+              ⏳ Request Queued
+            </div>
+            <div style={{ fontSize: "13px", marginBottom: "4px" }}>
+              Position in queue: <strong>{queueStatus.queue_position}</strong> of {queueStatus.total_queue_length}
+            </div>
+            {queueStatus.estimated_wait_seconds && (
+              <div style={{ fontSize: "13px" }}>
+                Estimated wait: <strong>{Math.ceil(queueStatus.estimated_wait_seconds / 60)} minutes</strong>
+              </div>
+            )}
+            <div style={{ fontSize: "12px", marginTop: "8px", color: "#78350f" }}>
+              The system is experiencing high load. Your request will be processed automatically when it reaches the front of the queue.
+            </div>
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (error && !reasoning) {

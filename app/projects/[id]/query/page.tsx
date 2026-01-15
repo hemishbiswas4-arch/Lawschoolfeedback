@@ -122,6 +122,15 @@ export default function QueryPage() {
     setLoading(true)
     setRetrievedChunks([])
 
+    // Get user for authentication
+    const { data: sessionData } = await supabase.auth.getSession()
+    const user = sessionData.session?.user
+    if (!user) {
+      alert("Authentication required. Please log in and try again.")
+      setLoading(false)
+      return
+    }
+
     const res = await fetch("/api/reasoning/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -129,6 +138,8 @@ export default function QueryPage() {
         project_id: projectId,
         query_text: query.trim(),
         mode: "retrieve",
+        user_id: user.id,
+        user_email: user.email,
       }),
     })
 

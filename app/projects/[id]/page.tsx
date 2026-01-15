@@ -100,9 +100,11 @@ export default function ProjectPage() {
   const [uploading, setUploading] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<Array<{ file: File; id: string }>>([])
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
+  const [uploadErrors, setUploadErrors] = useState<Record<string, { message: string; suggestions?: string[] }>>({})
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showSourceGuidance, setShowSourceGuidance] = useState(false)
+  const [titleError, setTitleError] = useState<string>("")
 
   /* ================= LOAD PROJECT + SOURCES ================= */
 
@@ -151,8 +153,8 @@ export default function ProjectPage() {
       alert("Only PDF files are supported. Non-PDF files were ignored.")
     }
 
-    // Validate file sizes (50MB limit per file)
-    const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+    // Validate file sizes (200MB limit per file - increased for larger files)
+    const MAX_FILE_SIZE = 200 * 1024 * 1024 // 200MB
     const validFiles = []
     const oversizedFiles = []
     const invalidFiles = []
@@ -173,7 +175,7 @@ export default function ProjectPage() {
     }
 
     if (oversizedFiles.length > 0) {
-      alert(`The following files exceed the 50MB limit and were skipped:\n${oversizedFiles.join('\n')}`)
+      alert(`The following files exceed the 200MB limit and were skipped:\n${oversizedFiles.join('\n')}`)
     }
 
     // Check total file count limit (50 files max)
@@ -227,8 +229,8 @@ export default function ProjectPage() {
       alert("Only PDF files are supported. Non-PDF files were ignored.")
     }
 
-    // Validate file sizes (50MB limit per file)
-    const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+    // Validate file sizes (200MB limit per file - increased for larger files)
+    const MAX_FILE_SIZE = 200 * 1024 * 1024 // 200MB
     const validFiles = []
     const oversizedFiles = []
     const invalidFiles = []
@@ -249,7 +251,7 @@ export default function ProjectPage() {
     }
 
     if (oversizedFiles.length > 0) {
-      alert(`The following files exceed the 50MB limit and were skipped:\n${oversizedFiles.join('\n')}`)
+      alert(`The following files exceed the 200MB limit and were skipped:\n${oversizedFiles.join('\n')}`)
     }
 
     // Check total file count limit (50 files max)
@@ -274,10 +276,21 @@ export default function ProjectPage() {
   /* ================= BATCH UPLOAD SOURCES (OPTIMIZED) ================= */
 
   const handleBatchUpload = async () => {
-    if (selectedFiles.length === 0 || !sourceTitle.trim() || uploading) return
+    // Clear previous errors
+    setUploadErrors({})
+    setTitleError("")
+
+    // Validate title
+    if (!sourceTitle.trim()) {
+      setTitleError("Title is required. Please enter a title for your source(s).")
+      return
+    }
+
+    if (selectedFiles.length === 0 || uploading) return
 
     setUploading(true)
     setUploadProgress({})
+    setUploadErrors({})
 
     const { data: session } = await supabase.auth.getSession()
     const user = session.session?.user
@@ -342,8 +355,23 @@ export default function ProjectPage() {
       progressIntervals.forEach(interval => clearInterval(interval))
 
       if (!res.ok) {
-        const errorText = await res.text().catch(() => "Upload failed")
-        console.error(`Batch upload failed:`, res.status, errorText)
+        let errorData: any = {}
+        try {
+          errorData = await res.json()
+        } catch {
+          const errorText = await res.text().catch(() => "Upload failed")
+          errorData = { error: errorText }
+        }
+        
+        console.error(`Batch upload failed:`, res.status, errorData)
+        
+        // Handle validation errors (like missing title)
+        if (errorData.errorCode === "MISSING_TITLE" || res.status === 400) {
+          setTitleError(errorData.error || "Title is required")
+          if (errorData.suggestions) {
+            setTitleError(prev => prev + " " + errorData.suggestions.join(" "))
+          }
+        }
         
         // Remove all optimistic sources on failure
         setSources(prev => prev.filter(s => !tempIds.includes(s.id)))
@@ -355,7 +383,10 @@ export default function ProjectPage() {
           })
         })
         
-        alert(`Upload failed: ${errorText}`)
+        // Show detailed error
+        const errorMessage = errorData.error || "Upload failed"
+        const errorSuggestions = errorData.suggestions || []
+        alert(`Upload failed: ${errorMessage}${errorSuggestions.length > 0 ? "\n\nSuggestions:\n" + errorSuggestions.map((s: string) => `• ${s}`).join("\n") : ""}`)
         setUploading(false)
         return
       }
@@ -388,10 +419,31 @@ export default function ProjectPage() {
         console.log(`Refreshed sources, now have ${sourceData.length} sources`)
       }
 
-      // Check for failed files
+      // Check for failed files and show detailed errors
       const failedFiles = result.results?.filter((r: any) => r.status === "failed") || []
       if (failedFiles.length > 0) {
-        alert(`Upload complete. ${failedFiles.length} file(s) failed: ${failedFiles.map((f: any) => f.fileName).join(", ")}`)
+        // Store errors for display
+        const errors: Record<string, { message: string; suggestions?: string[] }> = {}
+        failedFiles.forEach((f: any) => {
+          const fileEntry = filesToUpload.find(({ file }) => file.name === f.fileName)
+          if (fileEntry) {
+            errors[fileEntry.id] = {
+              message: f.error || "Upload failed",
+              suggestions: f.suggestions || []
+            }
+          }
+        })
+        setUploadErrors(errors)
+        
+        // Show detailed error alert
+        const errorDetails = failedFiles.map((f: any) => {
+          const suggestions = f.suggestions && f.suggestions.length > 0
+            ? "\n  Suggestions:\n" + f.suggestions.map((s: string) => `    • ${s}`).join("\n")
+            : ""
+          return `• ${f.fileName}: ${f.error}${suggestions}`
+        }).join("\n\n")
+        
+        alert(`Upload complete. ${failedFiles.length} file(s) failed:\n\n${errorDetails}`)
       } else {
         console.log(`Successfully uploaded ${filesToUpload.length} file(s)`)
       }
@@ -411,12 +463,21 @@ export default function ProjectPage() {
         })
       })
       
-      alert(`Upload error: ${err.message || "Unknown error"}`)
+      // Show detailed error
+      const errorMessage = err.message || "Unknown error"
+      const suggestions = [
+        "Check your internet connection",
+        "Try uploading again in a few moments",
+        "If the problem persists, contact support"
+      ]
+      alert(`Upload error: ${errorMessage}\n\nSuggestions:\n${suggestions.map(s => `• ${s}`).join("\n")}`)
     }
 
     setSourceTitle("")
     setSelectedFiles([])
     setUploadProgress({})
+    setUploadErrors({})
+    setTitleError("")
     setUploading(false)
   }
 
@@ -734,22 +795,55 @@ export default function ProjectPage() {
           {/* Source Title */}
           <div style={{ marginBottom: "24px" }}>
             <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
-              Title {selectedFiles.length > 1 && "(Base title for multiple files)"}
+              Title <span style={{ color: "#ef4444" }}>*</span> {selectedFiles.length > 1 && "(Base title for multiple files)"}
             </label>
             <input
               value={sourceTitle}
-              onChange={e => setSourceTitle(e.target.value)}
+              onChange={e => {
+                setSourceTitle(e.target.value)
+                if (titleError && e.target.value.trim()) {
+                  setTitleError("")
+                }
+              }}
               placeholder={selectedFiles.length > 1 ? "Base title (e.g., 'Supreme Court Cases')" : "Source title"}
               disabled={uploading}
               style={{
                 width: "100%",
                 padding: "12px",
                 borderRadius: "8px",
-                border: "1px solid #d1d5db",
+                border: titleError ? "2px solid #ef4444" : "1px solid #d1d5db",
                 fontSize: "14px",
                 background: "#fff",
+                transition: "border-color 0.2s",
               }}
             />
+            {titleError && (
+              <div style={{
+                marginTop: "8px",
+                padding: "12px",
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: "6px",
+                fontSize: "13px",
+                color: "#991b1b"
+              }}>
+                <div style={{ fontWeight: 600, marginBottom: "4px" }}>⚠️ {titleError}</div>
+                <div style={{ fontSize: "12px", color: "#7f1d1d", marginTop: "4px" }}>
+                  Please enter a title before uploading. For multiple files, enter a base title that will be used for all files.
+                </div>
+              </div>
+            )}
+            {!titleError && selectedFiles.length > 0 && (
+              <div style={{
+                marginTop: "8px",
+                fontSize: "12px",
+                color: "#6b7280"
+              }}>
+                {selectedFiles.length > 1 
+                  ? `Each file will be named: "${sourceTitle.trim() || "[Your Title]"} — [filename]"`
+                  : "This title will be used to identify your source"}
+              </div>
+            )}
           </div>
 
           {/* DRAG AND DROP UPLOAD AREA */}
@@ -799,9 +893,10 @@ export default function ProjectPage() {
               justifyContent: "center",
               gap: "24px",
               fontSize: "12px",
-              color: "#6b7280"
+              color: "#6b7280",
+              flexWrap: "wrap"
             }}>
-              <span>Maximum 50MB per file</span>
+              <span>Maximum 200MB per file</span>
               <span>Up to 50 files</span>
               <span>PDF format only</span>
               <span>Large uploads may take several minutes to process</span>
@@ -846,58 +941,91 @@ export default function ProjectPage() {
                 gridTemplateColumns: "1fr",
                 gap: "12px"
               }}>
-                {selectedFiles.map(({ file, id }) => (
-                  <div
-                    key={id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "12px",
-                      background: "#f8fafc",
-                      borderRadius: "8px",
-                      border: "1px solid #e2e8f0",
-                      boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)"
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0, marginRight: "12px" }}>
-                      <div style={{
-                        fontSize: "13px",
-                        fontWeight: 500,
-                        color: "#1e293b",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        marginBottom: "4px"
-                      }}>
-                        {file.name}
-                      </div>
-                      <div style={{ fontSize: "11px", color: "#64748b" }}>
-                        {(file.size / 1024 / 1024).toFixed(2)} MB
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => removeSelectedFile(id)}
-                      disabled={uploading}
+                {selectedFiles.map(({ file, id }) => {
+                  const fileError = uploadErrors[id]
+                  return (
+                    <div
+                      key={id}
                       style={{
-                        padding: "6px",
-                        background: "none",
-                        border: "none",
-                        color: "#ef4444",
-                        cursor: uploading ? "not-allowed" : "pointer",
-                        fontSize: "16px",
-                        borderRadius: "4px",
-                        transition: "all 0.2s",
-                        opacity: uploading ? 0.5 : 1
+                        padding: "12px",
+                        background: fileError ? "#fef2f2" : "#f8fafc",
+                        borderRadius: "8px",
+                        border: fileError ? "2px solid #ef4444" : "1px solid #e2e8f0",
+                        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)"
                       }}
-                      onMouseEnter={(e) => !uploading && (e.currentTarget.style.background = "#fef2f2")}
-                      onMouseLeave={(e) => !uploading && (e.currentTarget.style.background = "none")}
-                      title="Remove file"
                     >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ flex: 1, minWidth: 0, marginRight: "12px" }}>
+                          <div style={{
+                            fontSize: "13px",
+                            fontWeight: 500,
+                            color: "#1e293b",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            marginBottom: "4px"
+                          }}>
+                            {file.name}
+                          </div>
+                          <div style={{ fontSize: "11px", color: "#64748b" }}>
+                            {(file.size / 1024 / 1024).toFixed(2)} MB
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            removeSelectedFile(id)
+                            setUploadErrors(prev => {
+                              const newErrors = { ...prev }
+                              delete newErrors[id]
+                              return newErrors
+                            })
+                          }}
+                          disabled={uploading}
+                          style={{
+                            padding: "6px",
+                            background: "none",
+                            border: "none",
+                            color: "#ef4444",
+                            cursor: uploading ? "not-allowed" : "pointer",
+                            fontSize: "16px",
+                            borderRadius: "4px",
+                            transition: "all 0.2s",
+                            opacity: uploading ? 0.5 : 1
+                          }}
+                          onMouseEnter={(e) => !uploading && (e.currentTarget.style.background = "#fef2f2")}
+                          onMouseLeave={(e) => !uploading && (e.currentTarget.style.background = "none")}
+                          title="Remove file"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      {fileError && (
+                        <div style={{
+                          marginTop: "8px",
+                          padding: "8px",
+                          background: "#fff",
+                          borderRadius: "4px",
+                          fontSize: "12px",
+                          color: "#991b1b"
+                        }}>
+                          <div style={{ fontWeight: 600, marginBottom: "4px" }}>
+                            ⚠️ {fileError.message}
+                          </div>
+                          {fileError.suggestions && fileError.suggestions.length > 0 && (
+                            <div style={{ fontSize: "11px", color: "#7f1d1d", marginTop: "4px" }}>
+                              <strong>Suggestions:</strong>
+                              <ul style={{ margin: "4px 0 0 0", paddingLeft: "20px" }}>
+                                {fileError.suggestions.map((suggestion, idx) => (
+                                  <li key={idx}>{suggestion}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -952,7 +1080,7 @@ export default function ProjectPage() {
                           }}
                         />
                       </div>
-                      {progress === 100 && (
+                      {progress === 100 && !uploadErrors[id] && (
                         <div style={{
                           fontSize: "11px",
                           color: "#10b981",
@@ -960,6 +1088,30 @@ export default function ProjectPage() {
                           fontWeight: 500
                         }}>
                           ✓ Complete
+                        </div>
+                      )}
+                      {uploadErrors[id] && (
+                        <div style={{
+                          marginTop: "8px",
+                          padding: "8px",
+                          background: "#fef2f2",
+                          borderRadius: "4px",
+                          fontSize: "11px",
+                          color: "#991b1b"
+                        }}>
+                          <div style={{ fontWeight: 600, marginBottom: "4px" }}>
+                            ⚠️ {uploadErrors[id].message}
+                          </div>
+                          {uploadErrors[id].suggestions && uploadErrors[id].suggestions!.length > 0 && (
+                            <div style={{ fontSize: "10px", color: "#7f1d1d", marginTop: "4px" }}>
+                              <strong>Suggestions:</strong>
+                              <ul style={{ margin: "4px 0 0 0", paddingLeft: "16px" }}>
+                                {uploadErrors[id].suggestions!.map((suggestion, idx) => (
+                                  <li key={idx}>{suggestion}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

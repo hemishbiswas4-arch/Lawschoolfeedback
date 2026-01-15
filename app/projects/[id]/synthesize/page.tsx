@@ -84,6 +84,13 @@ export default function SynthesizePage() {
     focus_areas: [],
   })
   const [wordLimit, setWordLimit] = useState<string>("")
+  const [queueStatus, setQueueStatus] = useState<{
+    in_queue: boolean
+    queue_position: number | null
+    estimated_wait_seconds: number | null
+    queue_mode_active: boolean
+    total_queue_length: number
+  } | null>(null)
 
   // Ref to prevent duplicate calls
   const synthesisInProgress = useRef(false)
@@ -198,9 +205,29 @@ export default function SynthesizePage() {
 
         console.log(`Proceeding with ${retrievedChunks.length} chunks for synthesis`)
 
-        // Get user info for usage logging
+        // Get user info - required for authentication
         const { data: sessionData } = await supabase.auth.getSession()
         const user = sessionData.session?.user
+
+        if (!user) {
+          setError("Authentication required. Please log in and try again.")
+          setSynthesizing(false)
+          setLoading(false)
+          router.replace("/login")
+          return
+        }
+
+        // Check queue status before making request (optional - just for info)
+        try {
+          const queueStatusRes = await fetch(`/api/reasoning/queue-status?user_id=${encodeURIComponent(user.id)}&type=synthesis`)
+          if (queueStatusRes.ok) {
+            const queueData = await queueStatusRes.json()
+            setQueueStatus(queueData)
+          }
+        } catch (e) {
+          // Queue status check failed, continue anyway
+          console.warn("Failed to check queue status:", e)
+        }
 
         console.log("Calling synthesis API...")
         const res = await fetch("/api/reasoning/synthesize", {
@@ -210,8 +237,8 @@ export default function SynthesizePage() {
             project_id: projectId,
             query_text: queryText,
             retrieved_chunks: retrievedChunks,
-            user_id: user?.id,
-            user_email: user?.email,
+            user_id: user.id,
+            user_email: user.email,
           }),
           signal: abortController.signal,
         })
@@ -219,6 +246,16 @@ export default function SynthesizePage() {
         if (!res.ok) {
           const errorText = await res.text()
           console.error("Synthesis API error:", res.status, errorText)
+
+          // Handle authentication errors
+          if (res.status === 401) {
+            throw new Error("Authentication required. Please log in and try again.")
+          }
+
+          // Handle authorization errors
+          if (res.status === 403) {
+            throw new Error("Access denied. You don't have permission to access this project.")
+          }
 
           // Handle specific case where synthesis is busy
           if (res.status === 429 && errorText.includes("Please try again in 5 minutes")) {
@@ -230,11 +267,52 @@ export default function SynthesizePage() {
             throw new Error("Another user is currently generating content. Synthesis analysis is cached - please refresh the page if you need updated results.")
           }
 
+          // Handle queue timeout
+          if (res.status === 504 && errorText.includes("timed out in queue")) {
+            throw new Error("Request timed out in queue. The system is experiencing high load. Please try again in a few minutes.")
+          }
+
           throw new Error(`Synthesis failed: ${res.status} ${errorText}`)
         }
 
         const data = await res.json()
         console.log("Synthesis response received:", data)
+        
+        // Check if response indicates queued status (202 Accepted)
+        if (res.status === 202 || data.queued) {
+          setQueueStatus({
+            in_queue: true,
+            queue_position: data.queue_position || null,
+            estimated_wait_seconds: data.estimated_wait_seconds || null,
+            queue_mode_active: true,
+            total_queue_length: data.total_queue_length || 0,
+          })
+          
+          // Start polling for queue status and retry when queue clears
+          const pollInterval = setInterval(async () => {
+            try {
+              const statusRes = await fetch(`/api/reasoning/queue-status?user_id=${encodeURIComponent(user.id)}&type=synthesis`)
+              if (statusRes.ok) {
+                const status = await statusRes.json()
+                setQueueStatus(status)
+                if (!status.in_queue) {
+                  clearInterval(pollInterval)
+                  // Retry the request after queue clears
+                  synthesisInProgress.current = false
+                  setTimeout(() => {
+                    synthesize()
+                  }, 1000)
+                }
+              }
+            } catch (e) {
+              console.error("Queue status poll error:", e)
+            }
+          }, 2000)
+          
+          // Cleanup on unmount
+          return () => clearInterval(pollInterval)
+        }
+        
         setSynthesis(data)
         setLoadedFromCache(false)
 
@@ -330,6 +408,33 @@ export default function SynthesizePage() {
         <div style={{ fontSize: "14px", color: "#6b7280", marginBottom: "8px" }}>
           This may take a moment
         </div>
+        {queueStatus?.in_queue && (
+          <div style={{
+            maxWidth: "600px",
+            margin: "16px auto 0",
+            padding: "16px",
+            background: "#fef3c7",
+            border: "1px solid #f59e0b",
+            borderRadius: "8px",
+            color: "#92400e",
+            marginBottom: "16px"
+          }}>
+            <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
+              ⏳ Request Queued
+            </div>
+            <div style={{ fontSize: "13px", marginBottom: "4px" }}>
+              Position in queue: <strong>{queueStatus.queue_position}</strong> of {queueStatus.total_queue_length}
+            </div>
+            {queueStatus.estimated_wait_seconds && (
+              <div style={{ fontSize: "13px" }}>
+                Estimated wait: <strong>{Math.ceil(queueStatus.estimated_wait_seconds / 60)} minutes</strong>
+              </div>
+            )}
+            <div style={{ fontSize: "12px", marginTop: "8px", color: "#78350f" }}>
+              The system is experiencing high load. Your request will be processed automatically when it reaches the front of the queue.
+            </div>
+          </div>
+        )}
         {error && (
           <div style={{ maxWidth: "600px", margin: "16px auto 0" }}>
             <div style={{ fontSize: "13px", color: "#b91c1c", padding: "12px", background: "#fef2f2", borderRadius: "8px", marginBottom: "12px" }}>

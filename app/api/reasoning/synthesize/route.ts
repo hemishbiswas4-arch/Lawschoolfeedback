@@ -28,206 +28,64 @@ const bedrock = new BedrockRuntimeClient({
 const GENERATION_INFERENCE_PROFILE_ARN =
   process.env.BEDROCK_INFERENCE_PROFILE_ARN!
 
-/* ================= SINGLE-FLIGHT LOCK ================= */
+/* ================= PER-USER SINGLE-FLIGHT LOCK ================= */
 
-let synthesisInFlight = false
-let synthesisStartTime: number | null = null
+// Track synthesis state per user (user_id -> { inFlight: boolean, startTime: number | null })
+const userSynthesisLocks = new Map<string, { inFlight: boolean; startTime: number | null }>()
 const pendingSynthesisRequests = new Map<string, Promise<any>>()
 const SYNTHESIS_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
-/* ================= UTILS ================= */
+/* ================= CONDITIONAL QUEUE SYSTEM (ACTIVATES ON THROTTLING) ================= */
 
-const sleep = (ms: number) =>
-  new Promise(resolve => setTimeout(resolve, ms))
+import {
+  synthesisQueue,
+  synthesisQueueProcessing,
+  setSynthesisQueueProcessing,
+  setSynthesisThrottlingDetected,
+  getSynthesisQueueStatus,
+  type QueuedSynthesisRequest,
+} from "@/lib/queueState"
 
-async function sendWithRetry(cmd: any, runId: string) {
-  let attempt = 0
-  while (true) {
-    try {
-      return await bedrock.send(cmd)
-    } catch (err: any) {
-      if (err?.name === "ThrottlingException" && attempt < 5) {
-        attempt++
-        const wait = Math.min(2000 * attempt, 10000)
-        console.warn(`SYNTHESIZE [${runId}] Throttled, retrying in ${wait}ms (attempt ${attempt})`)
-        await sleep(wait)
-        continue
-      }
-      console.error(`SYNTHESIZE [${runId}] Fatal error:`, err)
-      throw err
-    }
-  }
-}
+const SYNTHESIS_THROTTLING_COOLDOWN_MS = 2 * 60 * 1000 // 2 minutes before switching back to parallel mode
 
-/* ================= TYPES ================= */
+/* ================= CORE SYNTHESIS LOGIC (EXTRACTED FOR QUEUE) ================= */
 
-type SynthesizeInput = {
+type SynthesisParams = {
+  runId: string
+  user_id: string
   project_id: string
   query_text: string
-  retrieved_chunks: Array<{
-    id: string
-    source_id: string
-    text: string
-    page_number: number | null
-    similarity: number | null
-  }>
+  retrieved_chunks: any[]
   project_type?: string
-  user_id?: string
-  user_email?: string
+  project: { id: string; owner_id: string; project_type: string; title: string }
 }
 
-type ArgumentationLine = {
-  id: string
-  title: string
-  description: string
-  structure: {
-    sections: Array<{
-      section_index: number
-      title: string
-      description: string
-    }>
+async function executeSynthesis(params: SynthesisParams): Promise<SynthesizeOutput> {
+  const { runId, query_text, retrieved_chunks, project_type, project } = params
+
+  const effectiveProjectType = project_type || project.project_type || "research_paper"
+
+  /* ================= PREPARE EVIDENCE SUMMARY ================= */
+  const chunksBySource = new Map<string, number>()
+  for (const chunk of retrieved_chunks) {
+    const count = chunksBySource.get(chunk.source_id) || 0
+    chunksBySource.set(chunk.source_id, count + 1)
   }
-  approach: string
-  focus_areas: string[]
-  tone: string
-}
 
-type SynthesizeOutput = {
-  argumentation_lines: ArgumentationLine[]
-  recommended_structure: {
-    type: string
-    description: string
-    sections: Array<{
-      section_index: number
-      title: string
-      description: string
-    }>
-  }
-  personalization_options: {
-    tone_options: Array<{ value: string; label: string; description: string }>
-    structure_options: Array<{ value: string; label: string; description: string }>
-    focus_options: Array<{ value: string; label: string; description: string }>
-  }
-}
+  const topChunks = retrieved_chunks
+    .slice(0, 20)
+    .map((c, idx) => `[${idx + 1}] ${c.text.slice(0, 200)}...`)
+    .join("\n\n")
 
-/* ================= HANDLER ================= */
-
-export async function POST(req: Request) {
-  const runId = crypto.randomUUID().slice(0, 8)
-  console.log(`SYNTHESIZE [${runId}] Request started`)
-
-  try {
-    const body = (await req.json()) as SynthesizeInput
-    const { project_id, query_text, retrieved_chunks, project_type, user_id, user_email } = body
-
-    if (!project_id || !query_text?.trim() || !retrieved_chunks?.length) {
-      return NextResponse.json(
-        { error: "Missing project_id, query_text, or retrieved_chunks" },
-        { status: 400 }
-      )
-    }
-
-    // Log usage if user info is provided
-    if (user_id && user_email) {
-      try {
-        await supabase.rpc('increment_usage_log', {
-          p_user_id: user_id,
-          p_user_email: user_email,
-          p_feature: 'reasoning_synthesize',
-          p_project_id: project_id
-        })
-      } catch (logError) {
-        console.warn(`SYNTHESIZE [${runId}] Usage logging failed:`, logError)
-        // Continue with synthesis even if logging fails
-      }
-    }
-
-    // Create a request key for deduplication
-    const requestKey = `${project_id}:${query_text.slice(0, 100)}:${retrieved_chunks.length}`
-    
-    // Check if there's already a pending request for this exact query
-    const pendingRequest = pendingSynthesisRequests.get(requestKey)
-    if (pendingRequest) {
-      console.log(`SYNTHESIZE [${runId}] Deduplicating request, returning existing promise`)
-      try {
-        const result = await pendingRequest
-        return NextResponse.json(result)
-      } catch (err) {
-        // If the pending request failed, remove it and continue with new request
-        pendingSynthesisRequests.delete(requestKey)
-      }
-    }
-
-    // Check single-flight lock
-    if (synthesisInFlight) {
-      const now = Date.now()
-      const elapsed = synthesisStartTime ? now - synthesisStartTime : 0
-
-      // Check if there's already a pending request for this exact query
-      const retryPending = pendingSynthesisRequests.get(requestKey)
-      if (retryPending) {
-        console.log(`SYNTHESIZE [${runId}] Deduplicating request, returning existing promise`)
-        try {
-          const result = await retryPending
-          return NextResponse.json(result)
-        } catch {
-          pendingSynthesisRequests.delete(requestKey)
-        }
-      }
-
-      // If synthesis has been running for more than 5 minutes, allow new requests
-      if (elapsed > SYNTHESIS_TIMEOUT_MS) {
-        console.log(`SYNTHESIZE [${runId}] Previous synthesis timed out (${elapsed}ms), allowing new request`)
-        synthesisInFlight = false
-        synthesisStartTime = null
-      } else {
-        // Return error message asking user to try again later
-        console.log(`SYNTHESIZE [${runId}] Synthesis busy (${elapsed}ms elapsed), returning error`)
-        return NextResponse.json(
-          { error: "Synthesis is currently in progress. Please try again in 5 minutes." },
-          { status: 429 }
-        )
-      }
-    }
-
-    synthesisInFlight = true
-    synthesisStartTime = Date.now()
-
-    // Create promise for this request
-    const synthesisPromise = (async (): Promise<SynthesizeOutput> => {
-      /* ================= LOAD PROJECT METADATA ================= */
-
-      const { data: project } = await supabase
-        .from("projects")
-        .select("project_type, title")
-        .eq("id", project_id)
-        .single()
-
-      const effectiveProjectType = project_type || project?.project_type || "research_paper"
-
-      /* ================= PREPARE EVIDENCE SUMMARY ================= */
-
-      const chunksBySource = new Map<string, number>()
-      for (const chunk of retrieved_chunks) {
-        const count = chunksBySource.get(chunk.source_id) || 0
-        chunksBySource.set(chunk.source_id, count + 1)
-      }
-
-      const topChunks = retrieved_chunks
-        .slice(0, 20)
-        .map((c, idx) => `[${idx + 1}] ${c.text.slice(0, 200)}...`)
-        .join("\n\n")
-
-      const evidenceSummary = `
+  const evidenceSummary = `
 Total chunks retrieved: ${retrieved_chunks.length}
 Sources represented: ${chunksBySource.size}
 Top evidence excerpts:
 ${topChunks}
 `.trim()
 
-      /* ================= BUILD SYNTHESIS PROMPT ================= */
-
-      const synthesisPrompt = `
+  /* ================= BUILD SYNTHESIS PROMPT ================= */
+  const synthesisPrompt = `
 SYSTEM ROLE:
 You are an expert legal and academic research strategist. Your task is to analyze retrieved evidence and a research query to propose multiple argumentation approaches, structural options, and personalization choices.
 
@@ -369,79 +227,431 @@ IMPORTANT:
 - Output must be valid JSON only
 `.trim()
 
-      /* ================= CALL MODEL ================= */
+  /* ================= CALL MODEL ================= */
+  console.log(`SYNTHESIZE [${runId}] Calling Bedrock model...`)
+  const res: any = await sendWithRetry(
+    new InvokeModelCommand({
+      modelId: GENERATION_INFERENCE_PROFILE_ARN,
+      contentType: "application/json",
+      accept: "application/json",
+      body: JSON.stringify({
+        anthropic_version: "bedrock-2023-05-31",
+        messages: [
+          { role: "user", content: [{ type: "text", text: synthesisPrompt }] },
+        ],
+        max_tokens: 8000,
+        temperature: 0.7,
+      }),
+    }),
+    runId
+  )
 
-      console.log(`SYNTHESIZE [${runId}] Calling Bedrock model...`)
-      const res: any = await sendWithRetry(
-        new InvokeModelCommand({
-          modelId: GENERATION_INFERENCE_PROFILE_ARN,
-          contentType: "application/json",
-          accept: "application/json",
-          body: JSON.stringify({
-            anthropic_version: "bedrock-2023-05-31",
-            messages: [
-              { role: "user", content: [{ type: "text", text: synthesisPrompt }] },
-            ],
-            max_tokens: 8000,
-            temperature: 0.7,
-          }),
-        }),
-        runId
-      )
+  if (!res.body) {
+    throw new Error("Empty response body from Bedrock")
+  }
 
-      if (!res.body) {
-        throw new Error("Empty response body from Bedrock")
-      }
+  const responseText = Buffer.from(res.body).toString("utf-8")
+  let parsed: any
+  try {
+    parsed = JSON.parse(responseText)
+  } catch (e) {
+    throw new Error("Failed to parse model response")
+  }
 
-      const responseText = Buffer.from(res.body).toString("utf-8")
-      let parsed: any
-      try {
-        parsed = JSON.parse(responseText)
-      } catch (e) {
-        throw new Error("Failed to parse model response")
-      }
+  const content = parsed.content?.[0]?.text || parsed.text || parsed.completion || ""
+  if (!content) {
+    throw new Error("Empty response from model")
+  }
 
-      // Handle different response formats from Bedrock
-      const content = parsed.content?.[0]?.text || parsed.text || parsed.completion || ""
-      
-      if (!content) {
-        throw new Error("Empty response from model")
-      }
+  /* ================= EXTRACT JSON ================= */
+  const jsonMatch = content.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) {
+    throw new Error("Failed to extract JSON from model output")
+  }
 
-      /* ================= EXTRACT JSON ================= */
+  let synthesisOutput: SynthesizeOutput
+  try {
+    synthesisOutput = JSON.parse(jsonMatch[0])
+  } catch (e) {
+    throw new Error("Invalid JSON in model output")
+  }
 
-      // Try to find JSON in the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        throw new Error("Failed to extract JSON from model output")
-      }
+  /* ================= VALIDATE OUTPUT ================= */
+  if (
+    !synthesisOutput.argumentation_lines ||
+    !Array.isArray(synthesisOutput.argumentation_lines) ||
+    synthesisOutput.argumentation_lines.length === 0
+  ) {
+    throw new Error("Invalid synthesis output structure")
+  }
 
-      let synthesisOutput: SynthesizeOutput
-      try {
-        synthesisOutput = JSON.parse(jsonMatch[0])
-      } catch (e) {
-        throw new Error("Invalid JSON in model output")
-      }
+  console.log(`SYNTHESIZE [${runId}] Success`)
+  return synthesisOutput
+}
 
-      /* ================= VALIDATE OUTPUT ================= */
+// Queue state is now managed in @/lib/queueState.ts
 
-      if (
-        !synthesisOutput.argumentation_lines ||
-        !Array.isArray(synthesisOutput.argumentation_lines) ||
-        synthesisOutput.argumentation_lines.length === 0
-      ) {
-        throw new Error("Invalid synthesis output structure")
-      }
+/* ================= UTILS ================= */
 
-      console.log(`SYNTHESIZE [${runId}] Success`)
-      return synthesisOutput
-    })()
+const sleep = (ms: number) =>
+  new Promise(resolve => setTimeout(resolve, ms))
 
-    // Store the promise for deduplication
-    pendingSynthesisRequests.set(requestKey, synthesisPromise)
-
+async function sendWithRetry(cmd: any, runId: string) {
+  let attempt = 0
+  while (true) {
     try {
-      const synthesisOutput = await synthesisPromise
+      return await bedrock.send(cmd)
+    } catch (err: any) {
+      if (err?.name === "ThrottlingException" && attempt < 5) {
+        attempt++
+        const wait = Math.min(2000 * attempt, 10000)
+        console.warn(`SYNTHESIZE [${runId}] Throttled, retrying in ${wait}ms (attempt ${attempt})`)
+        
+        // Activate queue system if throttling persists
+        if (attempt >= 3) {
+          const currentStatus = getSynthesisQueueStatus("")
+          if (!currentStatus.queue_mode_active) {
+            setSynthesisThrottlingDetected(true, Date.now())
+            console.warn(`SYNTHESIZE [${runId}] Throttling detected - queue activated`, { attempt })
+          }
+        }
+        
+        await sleep(wait)
+        continue
+      }
+      console.error(`SYNTHESIZE [${runId}] Fatal error:`, err)
+      throw err
+    }
+  }
+}
+
+/* ================= QUEUE PROCESSING ================= */
+
+async function processSynthesisQueue() {
+  if (synthesisQueueProcessing() || synthesisQueue.length === 0) return
+  
+  setSynthesisQueueProcessing(true)
+  console.log(`SYNTHESIZE [QUEUE] Processing start`, { queue_length: synthesisQueue.length })
+  
+  while (synthesisQueue.length > 0) {
+    const request = synthesisQueue.shift()
+    if (!request) break
+    
+    try {
+      console.log(`SYNTHESIZE [${request.runId}] Queue processing`, { user_id: request.user_id, queue_position: synthesisQueue.length })
+      
+      // Check user lock before processing
+      const userLock = userSynthesisLocks.get(request.user_id)
+      if (userLock?.inFlight) {
+        console.log(`SYNTHESIZE [${request.runId}] Queue skip - user busy`, { user_id: request.user_id })
+        request.reject(new Error("You already have a synthesis in progress"))
+        continue
+      }
+      
+      // Acquire lock for this user
+      userSynthesisLocks.set(request.user_id, { inFlight: true, startTime: Date.now() })
+      
+      try {
+        // Process the queued request using the extracted synthesis function
+        const result = await processQueuedSynthesisRequest(request)
+        request.resolve(NextResponse.json(result))
+      } finally {
+        // Release lock for this user
+        userSynthesisLocks.set(request.user_id, { inFlight: false, startTime: null })
+      }
+    } catch (error: any) {
+      console.error(`SYNTHESIZE [${request.runId}] Queue error:`, error)
+      request.reject(error)
+      // Release lock on error
+      userSynthesisLocks.set(request.user_id, { inFlight: false, startTime: null })
+    }
+    
+    // Delay between queue items
+    const queueStatus = getSynthesisQueueStatus("")
+    const delay = queueStatus.queue_mode_active ? 3000 : 1000
+    await sleep(delay)
+  }
+  
+  setSynthesisQueueProcessing(false)
+  
+  // Check if we should deactivate queue mode
+  const currentStatus = getSynthesisQueueStatus("")
+  if (currentStatus.queue_mode_active) {
+    if (synthesisQueue.length === 0) {
+      // Deactivate after cooldown period
+      setTimeout(() => {
+        if (synthesisQueue.length === 0) {
+          setSynthesisThrottlingDetected(false)
+          console.log(`SYNTHESIZE [QUEUE] Throttling subsided - queue deactivated`)
+        }
+      }, SYNTHESIS_THROTTLING_COOLDOWN_MS)
+    }
+  }
+}
+
+async function processQueuedSynthesisRequest(request: QueuedSynthesisRequest): Promise<SynthesizeOutput> {
+  const { user_id, project_id, query_text, retrieved_chunks, project_type, runId } = request
+  
+  // Verify project ownership (required for queue processing)
+  const { data: project, error: projectError } = await supabase
+    .from("projects")
+    .select("id, owner_id, project_type, title")
+    .eq("id", project_id)
+    .eq("owner_id", user_id)
+    .single()
+
+  if (projectError || !project) {
+    throw new Error("Project not found or access denied")
+  }
+
+  // Execute the core synthesis logic
+  const result = await executeSynthesis({
+    runId,
+    user_id,
+    project_id,
+    query_text,
+    retrieved_chunks,
+    project_type,
+    project,
+  })
+
+  return result
+}
+
+/* ================= TYPES ================= */
+
+type SynthesizeInput = {
+  project_id: string
+  query_text: string
+  retrieved_chunks: Array<{
+    id: string
+    source_id: string
+    text: string
+    page_number: number | null
+    similarity: number | null
+  }>
+  project_type?: string
+  user_id?: string
+  user_email?: string
+}
+
+type ArgumentationLine = {
+  id: string
+  title: string
+  description: string
+  structure: {
+    sections: Array<{
+      section_index: number
+      title: string
+      description: string
+    }>
+  }
+  approach: string
+  focus_areas: string[]
+  tone: string
+}
+
+type SynthesizeOutput = {
+  argumentation_lines: ArgumentationLine[]
+  recommended_structure: {
+    type: string
+    description: string
+    sections: Array<{
+      section_index: number
+      title: string
+      description: string
+    }>
+  }
+  personalization_options: {
+    tone_options: Array<{ value: string; label: string; description: string }>
+    structure_options: Array<{ value: string; label: string; description: string }>
+    focus_options: Array<{ value: string; label: string; description: string }>
+  }
+}
+
+/* ================= HANDLER ================= */
+
+export async function POST(req: Request) {
+  const runId = crypto.randomUUID().slice(0, 8)
+  console.log(`SYNTHESIZE [${runId}] Request started`)
+
+  try {
+    const body = (await req.json()) as SynthesizeInput
+    const { project_id, query_text, retrieved_chunks, project_type, user_id, user_email } = body
+
+    if (!project_id || !query_text?.trim() || !retrieved_chunks?.length) {
+      return NextResponse.json(
+        { error: "Missing project_id, query_text, or retrieved_chunks" },
+        { status: 400 }
+      )
+    }
+
+    // Authentication: require user_id
+    if (!user_id) {
+      return NextResponse.json(
+        { error: "Authentication required. Missing user_id." },
+        { status: 401 }
+      )
+    }
+
+    // Verify project ownership
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("id, owner_id, project_type, title")
+      .eq("id", project_id)
+      .eq("owner_id", user_id)
+      .single()
+
+    if (projectError || !project) {
+      console.warn(`SYNTHESIZE [${runId}] Project access denied`, { project_id, user_id, error: projectError })
+      return NextResponse.json(
+        { error: "Project not found or access denied" },
+        { status: 403 }
+      )
+    }
+
+    console.log(`SYNTHESIZE [${runId}] Project access verified`, { project_id, user_id, project_type: project.project_type })
+
+    // Log usage if user info is provided
+    if (user_id && user_email) {
+      try {
+        await supabase.rpc('increment_usage_log', {
+          p_user_id: user_id,
+          p_user_email: user_email,
+          p_feature: 'reasoning_synthesize',
+          p_project_id: project_id
+        })
+      } catch (logError) {
+        console.warn(`SYNTHESIZE [${runId}] Usage logging failed:`, logError)
+        // Continue with synthesis even if logging fails
+      }
+    }
+
+    // Create a request key for deduplication
+    const requestKey = `${project_id}:${query_text.slice(0, 100)}:${retrieved_chunks.length}`
+    
+    // Check if there's already a pending request for this exact query
+    const pendingRequest = pendingSynthesisRequests.get(requestKey)
+    if (pendingRequest) {
+      console.log(`SYNTHESIZE [${runId}] Deduplicating request, returning existing promise`)
+      try {
+        const result = await pendingRequest
+        return NextResponse.json(result)
+      } catch (err) {
+        // If the pending request failed, remove it and continue with new request
+        pendingSynthesisRequests.delete(requestKey)
+      }
+    }
+
+    // Check if there's already a pending request for this exact query (deduplication)
+    const retryPending = pendingSynthesisRequests.get(requestKey)
+    if (retryPending) {
+      console.log(`SYNTHESIZE [${runId}] Deduplicating request, returning existing promise`)
+      try {
+        const result = await retryPending
+        return NextResponse.json(result)
+      } catch {
+        pendingSynthesisRequests.delete(requestKey)
+      }
+    }
+
+    // Check if this user already has a synthesis in progress
+    const userLock = userSynthesisLocks.get(user_id)
+    if (userLock?.inFlight) {
+      const now = Date.now()
+      const elapsed = userLock.startTime ? now - userLock.startTime : 0
+
+      // If synthesis has been running for more than 5 minutes, allow new requests
+      if (elapsed > SYNTHESIS_TIMEOUT_MS) {
+        console.log(`SYNTHESIZE [${runId}] Previous synthesis timed out (${elapsed}ms), allowing new request`, { user_id })
+        userSynthesisLocks.set(user_id, { inFlight: false, startTime: null })
+      } else {
+        // Return error message asking user to try again later
+        console.log(`SYNTHESIZE [${runId}] Synthesis busy for user (${elapsed}ms elapsed), returning error`, { user_id })
+        return NextResponse.json(
+          { error: "You already have a synthesis in progress. Please wait for it to complete or try again in a few minutes." },
+          { status: 429 }
+        )
+      }
+    }
+
+    /* ================= CONDITIONAL QUEUE CHECK ================= */
+
+    // If throttling is detected and queue mode is active, queue the request
+    const queueStatus = getSynthesisQueueStatus(user_id)
+    if (queueStatus.queue_mode_active) {
+      console.log(`SYNTHESIZE [${runId}] Queue request`, { user_id, queue_length: synthesisQueue.length })
+      
+      // Return immediate response with queue info, then process in background
+      const queuePosition = synthesisQueue.length + 1
+      console.log(`SYNTHESIZE [${runId}] Queue request`, { user_id, queue_length: synthesisQueue.length, queue_position: queuePosition })
+      
+      return new Promise((resolve, reject) => {
+        const queuedRequest: QueuedSynthesisRequest = {
+          user_id,
+          project_id,
+          query_text,
+          retrieved_chunks,
+          project_type,
+          resolve: (value: any) => {
+            if (value instanceof NextResponse) {
+              resolve(value)
+            } else {
+              resolve(NextResponse.json(value))
+            }
+          },
+          reject: (error: any) => {
+            reject(NextResponse.json(
+              { error: error?.message || "Queue processing failed" },
+              { status: 500 }
+            ))
+          },
+          runId,
+          queuedAt: Date.now(),
+        }
+        
+        synthesisQueue.push(queuedRequest)
+        
+        // Return immediate response with queue status
+        resolve(NextResponse.json({
+          queued: true,
+          queue_position: queuePosition,
+          estimated_wait_seconds: (queuePosition - 1) * 30,
+          total_queue_length: synthesisQueue.length,
+          message: "Request queued due to high load. Processing will begin automatically.",
+        }, { status: 202 })) // 202 Accepted - request queued
+        
+        // Start processing queue if not already processing
+        processSynthesisQueue().catch(err => {
+          console.error(`SYNTHESIZE [${runId}] Queue process error:`, err)
+        })
+        
+        // Set timeout for queued request (10 minutes max wait)
+        setTimeout(() => {
+          const index = synthesisQueue.indexOf(queuedRequest)
+          if (index !== -1) {
+            synthesisQueue.splice(index, 1)
+            // Request will timeout, but we've already returned 202
+          }
+        }, 10 * 60 * 1000)
+      })
+    }
+
+    // Acquire lock for this user
+    userSynthesisLocks.set(user_id, { inFlight: true, startTime: Date.now() })
+
+    // Execute synthesis
+    try {
+      const synthesisOutput = await executeSynthesis({
+        runId,
+        user_id,
+        project_id,
+        query_text,
+        retrieved_chunks,
+        project_type,
+        project,
+      })
+
       return NextResponse.json(synthesisOutput)
     } catch (err: any) {
       console.error(`SYNTHESIZE [${runId}] ✗ error:`, err)
@@ -459,14 +669,28 @@ IMPORTANT:
         { status: 500 }
       )
     } finally {
-      synthesisInFlight = false
-      synthesisStartTime = null
+      // Release lock for this user
+      userSynthesisLocks.set(user_id, { inFlight: false, startTime: null })
       pendingSynthesisRequests.delete(requestKey)
     }
+  } catch (err: any) {
+    // Release lock for this user on error
+    if (user_id) {
+      userSynthesisLocks.set(user_id, { inFlight: false, startTime: null })
+    }
+    console.error(`SYNTHESIZE [${runId}] ✗ fatal error:`, err)
+    return NextResponse.json(
+      { error: err?.message ?? "Internal error" },
+      { status: 500 }
+    )
+  }
+}
 
   } catch (err: any) {
-    synthesisInFlight = false
-    synthesisStartTime = null
+    // Release lock for this user on error
+    if (user_id) {
+      userSynthesisLocks.set(user_id, { inFlight: false, startTime: null })
+    }
     console.error(`SYNTHESIZE [${runId}] ✗ fatal error:`, err)
     return NextResponse.json(
       { error: err?.message ?? "Internal error" },

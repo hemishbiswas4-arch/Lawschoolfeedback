@@ -24,6 +24,34 @@ export async function GET(req: Request) {
     )
   }
 
+  // Get user_id from query params or headers
+  const userId = url.searchParams.get("user_id")
+  if (!userId) {
+    return NextResponse.json(
+      { error: "Authentication required. Missing user_id." },
+      { status: 401 }
+    )
+  }
+
+  // Verify source ownership via project ownership
+  const { data: sourceCheck, error: sourceError } = await supabaseAdmin
+    .from("project_sources")
+    .select(`
+      id,
+      project_id,
+      projects!inner(owner_id)
+    `)
+    .eq("id", sourceId)
+    .eq("projects.owner_id", userId)
+    .single()
+
+  if (sourceError || !sourceCheck) {
+    return NextResponse.json(
+      { error: "Source not found or access denied" },
+      { status: 403 }
+    )
+  }
+
   const { data, error } = await supabaseAdmin
     .from("source_chunks")
     .select(`
