@@ -10,24 +10,36 @@ type EvidenceChunk = {
   paragraph_index: number
   chunk_index: number
   content: string
+  // NEW: Enhanced metadata from document-type-aware chunking
+  metadata?: {
+    section_header?: string
+    case_citations?: string[]
+    statute_references?: string[]
+    detected_patterns?: string[]
+    heading_context?: string
+  }
+}
+
+type ArgumentationLine = {
+  id: string
+  title: string
+  description: string
+  approach: string
+  focus_areas: string[]
+  tone: string
+  structure: {
+    sections: Array<{
+      section_index: number
+      title: string
+      description: string
+    }>
+  }
 }
 
 type Approach = {
-  argumentation_line?: {
-    id: string
-    title: string
-    description: string
-    approach: string
-    focus_areas: string[]
-    tone: string
-    structure: {
-      sections: Array<{
-        section_index: number
-        title: string
-        description: string
-      }>
-    }
-  }
+  argumentation_line?: ArgumentationLine
+  // NEW: Support for combined argumentation lines
+  combined_lines?: ArgumentationLine[]
   tone?: string
   structure_type?: string
   focus_areas?: string[]
@@ -167,7 +179,7 @@ export function buildReasoningPrompt({
     .map(chunk => {
       const sourceType = sourceIdToType.get(chunk.source_id) || "unknown"
       const sourceTypeLabel = sourceTypeLabels[sourceType] || sourceType
-      const metadata = sourceMetadata.get(chunk.source_id)
+      const sourceMeta = sourceMetadata.get(chunk.source_id)
       const sourceChunks = chunksBySource.get(chunk.source_id) || []
       const chunkPosition = sourceChunks.findIndex(c => c.id === chunk.id)
       const isAdjacent = chunkPosition > 0 || chunkPosition < sourceChunks.length - 1
@@ -178,15 +190,40 @@ export function buildReasoningPrompt({
         ? `\nNOTE: This chunk is part of a sequence from ${sourceTypeLabel}. Read it together with adjacent chunks from the same source for complete legal context.`
         : ""
 
+      // Build enhanced metadata section if available
+      const chunkMetadata = chunk.metadata
+      let metadataSection = ""
+      if (chunkMetadata) {
+        const metadataLines: string[] = []
+        if (chunkMetadata.section_header) {
+          metadataLines.push(`Section: ${chunkMetadata.section_header}`)
+        }
+        if (chunkMetadata.heading_context) {
+          metadataLines.push(`Context: ${chunkMetadata.heading_context}`)
+        }
+        if (chunkMetadata.case_citations && chunkMetadata.case_citations.length > 0) {
+          metadataLines.push(`Case Citations: ${chunkMetadata.case_citations.slice(0, 5).join("; ")}`)
+        }
+        if (chunkMetadata.statute_references && chunkMetadata.statute_references.length > 0) {
+          metadataLines.push(`Statute Refs: ${chunkMetadata.statute_references.slice(0, 5).join("; ")}`)
+        }
+        if (chunkMetadata.detected_patterns && chunkMetadata.detected_patterns.length > 0) {
+          metadataLines.push(`Patterns: ${chunkMetadata.detected_patterns.join(", ")}`)
+        }
+        if (metadataLines.length > 0) {
+          metadataSection = `\n${metadataLines.join("\n")}`
+        }
+      }
+
       return [
         `[${chunk.id}]`,
         `Source ID: ${chunk.source_id}`,
         `Source Type: ${sourceTypeLabel}`,
-        `Source Title: ${metadata?.title || "Unknown"}`,
-        `Citation Abbrev: ${metadata?.abbreviation || sourceTypeLabel}`,
+        `Source Title: ${sourceMeta?.title || "Unknown"}`,
+        `Citation Abbrev: ${sourceMeta?.abbreviation || sourceTypeLabel}`,
         `Page Number: ${chunk.page_number}`,
         `Paragraph Index: ${chunk.paragraph_index}`,
-        `Chunk Index: ${chunk.chunk_index}${contextNote}`,
+        `Chunk Index: ${chunk.chunk_index}${contextNote}${metadataSection}`,
         `Content:`,
         chunk.content.trim(),
         ``,
@@ -309,7 +346,33 @@ export function buildReasoningPrompt({
   /* ---------- Approach context ---------- */
 
   let approachContext = ""
-  if (approach?.argumentation_line) {
+  
+  // Check for combined argumentation lines first
+  if (approach?.combined_lines && approach.combined_lines.length > 1) {
+    const lines = approach.combined_lines
+    approachContext = `
+COMBINED ARGUMENTATION APPROACH:
+You are implementing a HYBRID approach that combines ${lines.length} complementary argumentation strategies.
+
+${lines.map((line, idx) => `
+APPROACH ${idx + 1}: ${line.title}
+- Description: ${line.description}
+- Method: ${line.approach}
+- Focus Areas: ${line.focus_areas.join(", ")}
+- Tone: ${line.tone}
+`).join("")}
+
+INTEGRATION GUIDANCE:
+- Synthesize the perspectives from all ${lines.length} approaches into a coherent argument
+- Draw on the strengths of each approach: ${lines.map(l => l.approach).join(", ")}
+- Ensure the combined focus areas are addressed: ${[...new Set(lines.flatMap(l => l.focus_areas))].join(", ")}
+- Maintain a consistent tone that balances: ${[...new Set(lines.map(l => l.tone))].join(" and ")}
+- Use evidence that supports multiple approaches when possible to strengthen synthesis
+
+PROPOSED STRUCTURE (merged from combined approaches):
+${approach.sections?.map(s => `${s.section_index}. ${s.title} - ${s.description}`).join("\n  ") || lines[0].structure.sections.map(s => `${s.section_index}. ${s.title} - ${s.description}`).join("\n  ")}
+`
+  } else if (approach?.argumentation_line) {
     const line = approach.argumentation_line
     approachContext = `
 SELECTED ARGUMENTATION APPROACH:
@@ -360,6 +423,20 @@ CORE CONSTRAINTS (ABSOLUTE)
 - Output MUST be valid JSON and nothing else.
 
 ---------------------------------------------
+EVIDENCE SELECTION METHODOLOGY
+---------------------------------------------
+The evidence provided has been selected using Maximal Marginal Relevance (MMR) to ensure:
+- HIGH RELEVANCE: Each chunk is semantically relevant to the research query
+- DIVERSITY: Chunks represent different perspectives, sources, and source types
+- BALANCED COVERAGE: No single source dominates; evidence is distributed across available sources
+
+This means you should:
+- LEVERAGE the diversity by incorporating multiple perspectives in your analysis
+- SYNTHESIZE across source types (e.g., connect case law with statutory provisions)
+- AVOID over-relying on any single source when alternatives exist
+- USE the varied evidence to build comprehensive, well-supported arguments
+
+---------------------------------------------
 ACADEMIC SCHOLARSHIP REQUIREMENTS (CRITICAL)
 ---------------------------------------------
 This is NOT a descriptive or summary task. You are constructing a scholarly academic work that contributes to legal discourse.
@@ -401,6 +478,15 @@ You MAY:
 - Return to the same evidence chunk in different argumentative contexts to show theoretical complexity
 - Place different chunks in dialogue with one another to illuminate scholarly debates
 - Employ academic transitions that connect ideas within broader theoretical frameworks
+${approach?.combined_lines && approach.combined_lines.length > 1 ? `
+COMBINED APPROACH INTEGRATION:
+Since you are implementing a combined approach, you should:
+- Weave together insights from the ${approach.combined_lines.length} complementary argumentation strategies
+- Use evidence that supports multiple perspectives when possible
+- Create transitions that connect different analytical frameworks
+- Build a unified thesis that incorporates the strengths of each approach
+- Ensure all combined focus areas receive appropriate attention
+` : ""}
 
 ---------------------------------------------
 ACADEMIC STRUCTURAL REQUIREMENTS (MANDATORY)

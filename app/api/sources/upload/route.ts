@@ -195,6 +195,211 @@ type NormalizedRect = {
 type Paragraph = {
   text: string
   rects: NormalizedRect[]
+  isHeading?: boolean
+  headingLevel?: number
+  sectionNumber?: string
+}
+
+type ChunkMetadata = {
+  section_header?: string
+  case_citations?: string[]
+  statute_references?: string[]
+  detected_patterns?: string[]
+  heading_context?: string
+}
+
+/* ================= DOCUMENT TYPE CHUNKING CONFIGURATION ================= */
+
+type ChunkConfig = {
+  MAX_CHARS: number
+  MIN_CHARS: number
+  OVERLAP_CHARS: number
+  MAX_CHUNK_CHARS: number
+  preserveIRAC: boolean
+  preserveStatuteSections: boolean
+}
+
+const CHUNK_CONFIGS: Record<string, ChunkConfig> = {
+  // Case law: preserve IRAC structure, larger chunks for reasoning
+  case: {
+    MAX_CHARS: 1800,
+    MIN_CHARS: 400,
+    OVERLAP_CHARS: 300,
+    MAX_CHUNK_CHARS: 2200,
+    preserveIRAC: true,
+    preserveStatuteSections: false,
+  },
+  // Statutes: chunk by section/subsection, smaller more precise chunks
+  statute: {
+    MAX_CHARS: 1200,
+    MIN_CHARS: 200,
+    OVERLAP_CHARS: 150,
+    MAX_CHUNK_CHARS: 1500,
+    preserveIRAC: false,
+    preserveStatuteSections: true,
+  },
+  regulation: {
+    MAX_CHARS: 1200,
+    MIN_CHARS: 200,
+    OVERLAP_CHARS: 150,
+    MAX_CHUNK_CHARS: 1500,
+    preserveIRAC: false,
+    preserveStatuteSections: true,
+  },
+  constitution: {
+    MAX_CHARS: 1200,
+    MIN_CHARS: 200,
+    OVERLAP_CHARS: 150,
+    MAX_CHUNK_CHARS: 1500,
+    preserveIRAC: false,
+    preserveStatuteSections: true,
+  },
+  treaty: {
+    MAX_CHARS: 1400,
+    MIN_CHARS: 300,
+    OVERLAP_CHARS: 200,
+    MAX_CHUNK_CHARS: 1800,
+    preserveIRAC: false,
+    preserveStatuteSections: true,
+  },
+  // Academic papers: larger chunks for argument flow
+  journal_article: {
+    MAX_CHARS: 1600,
+    MIN_CHARS: 350,
+    OVERLAP_CHARS: 250,
+    MAX_CHUNK_CHARS: 2000,
+    preserveIRAC: false,
+    preserveStatuteSections: false,
+  },
+  book: {
+    MAX_CHARS: 1600,
+    MIN_CHARS: 350,
+    OVERLAP_CHARS: 250,
+    MAX_CHUNK_CHARS: 2000,
+    preserveIRAC: false,
+    preserveStatuteSections: false,
+  },
+  commentary: {
+    MAX_CHARS: 1500,
+    MIN_CHARS: 300,
+    OVERLAP_CHARS: 200,
+    MAX_CHUNK_CHARS: 1900,
+    preserveIRAC: false,
+    preserveStatuteSections: false,
+  },
+  // Default for unknown types
+  default: {
+    MAX_CHARS: 1500,
+    MIN_CHARS: 300,
+    OVERLAP_CHARS: 200,
+    MAX_CHUNK_CHARS: 1800,
+    preserveIRAC: false,
+    preserveStatuteSections: false,
+  },
+}
+
+/* ================= METADATA EXTRACTION ================= */
+
+function extractCaseCitations(text: string): string[] {
+  const citations: string[] = []
+  
+  // Common case citation patterns
+  const patterns = [
+    // US style: Name v. Name, 123 F.3d 456 (Cir. Year)
+    /[A-Z][a-zA-Z\s,.']+\s+v\.?\s+[A-Z][a-zA-Z\s,.']+,\s*\d+\s+[A-Z][a-zA-Z.]+\s*\d*\s+\d+\s*\([^)]+\d{4}\)/g,
+    // UK style: [Year] Court Vol (Party v Party)
+    /\[\d{4}\]\s+[A-Z]+\s+\d+/g,
+    // Simple v. pattern with year
+    /[A-Z][a-zA-Z\s]+\s+v\.?\s+[A-Z][a-zA-Z\s]+\s*\(\d{4}\)/g,
+    // Neutral citations: [Year] COURT Number
+    /\[\d{4}\]\s+[A-Z]{2,}\s+\d+/g,
+  ]
+  
+  for (const pattern of patterns) {
+    const matches = text.match(pattern) || []
+    citations.push(...matches.map(m => m.trim()))
+  }
+  
+  return [...new Set(citations)].slice(0, 10) // Dedupe and limit
+}
+
+function extractStatuteReferences(text: string): string[] {
+  const refs: string[] = []
+  
+  const patterns = [
+    // US Code: 42 U.S.C. § 1983
+    /\d+\s+U\.?S\.?C\.?\s*§\s*\d+[a-z]*/gi,
+    // Section references: Section 4, s. 4, § 4
+    /(?:Section|§|s\.)\s*\d+(?:\(\d+\))?(?:\([a-z]\))?/gi,
+    // Article references
+    /Article\s+\d+(?:\(\d+\))?/gi,
+    // Part/Chapter references
+    /(?:Part|Chapter)\s+[IVXLCDM\d]+/gi,
+    // Act references: The Something Act 2020
+    /The\s+[A-Z][a-zA-Z\s]+Act\s+\d{4}/g,
+  ]
+  
+  for (const pattern of patterns) {
+    const matches = text.match(pattern) || []
+    refs.push(...matches.map(m => m.trim()))
+  }
+  
+  return [...new Set(refs)].slice(0, 10)
+}
+
+function extractSectionHeader(text: string): string | undefined {
+  // Look for section headers at the start of text
+  const headerPatterns = [
+    /^(?:Section|Article|Part|Chapter)\s+[\dIVXLCDM]+[:\.\s]+([^\n]{1,100})/i,
+    /^(\d+(?:\.\d+)*)\s+([A-Z][^\n]{1,100})/,
+    /^([IVXLCDM]+)\.\s+([A-Z][^\n]{1,100})/,
+    /^([A-Z][A-Z\s]{5,50})$/m, // All caps heading
+  ]
+  
+  for (const pattern of headerPatterns) {
+    const match = text.match(pattern)
+    if (match) {
+      return match[0].trim().slice(0, 150)
+    }
+  }
+  
+  return undefined
+}
+
+function extractChunkMetadata(text: string, paragraphs: Paragraph[]): ChunkMetadata {
+  const metadata: ChunkMetadata = {}
+  
+  // Extract case citations
+  const caseCitations = extractCaseCitations(text)
+  if (caseCitations.length > 0) {
+    metadata.case_citations = caseCitations
+  }
+  
+  // Extract statute references
+  const statuteRefs = extractStatuteReferences(text)
+  if (statuteRefs.length > 0) {
+    metadata.statute_references = statuteRefs
+  }
+  
+  // Extract section header
+  const sectionHeader = extractSectionHeader(text)
+  if (sectionHeader) {
+    metadata.section_header = sectionHeader
+  }
+  
+  // Detect legal reasoning patterns
+  const patterns = detectLegalReasoningPatterns(text)
+  if (patterns.length > 0) {
+    metadata.detected_patterns = patterns
+  }
+  
+  // Get heading context from paragraphs
+  const headingPara = paragraphs.find(p => p.isHeading)
+  if (headingPara) {
+    metadata.heading_context = headingPara.text.trim().slice(0, 150)
+  }
+  
+  return metadata
 }
 
 const supabaseAdmin = createClient(
@@ -482,6 +687,10 @@ export async function POST(req: NextRequest) {
         let globalChunkIndex = 0
         let globalCharCursor = 0
 
+        // Get document type for type-aware chunking
+        const docType = type || "default"
+        console.log(`UPLOAD ▶ Processing with document type: ${docType}`)
+
         // Collect all chunks first - process pages in parallel for better performance
         const allChunks: Array<{
           text: string
@@ -491,6 +700,7 @@ export async function POST(req: NextRequest) {
           charStart: number
           charEnd: number
           chunkIndex: number
+          metadata?: ChunkMetadata
         }> = []
 
         // Process pages in parallel batches of 5 for memory efficiency
@@ -511,7 +721,8 @@ export async function POST(req: NextRequest) {
                   viewport.height
                 )
 
-                const chunks = contextualChunkParagraphs(paragraphs)
+                // Use document-type-aware chunking
+                const chunks = contextualChunkParagraphs(paragraphs, docType)
 
                 return { pageNum, chunks }
               })
@@ -540,6 +751,7 @@ export async function POST(req: NextRequest) {
                 charStart,
                 charEnd,
                 chunkIndex: globalChunkIndex++,
+                metadata: chunk.metadata,
               })
             }
           }
@@ -577,6 +789,14 @@ export async function POST(req: NextRequest) {
                   .createHash("sha256")
                   .update(chunk.text)
                   .digest("hex"),
+                // Store extracted metadata for improved retrieval
+                metadata_json: chunk.metadata ? {
+                  section_header: chunk.metadata.section_header,
+                  case_citations: chunk.metadata.case_citations,
+                  statute_references: chunk.metadata.statute_references,
+                  detected_patterns: chunk.metadata.detected_patterns,
+                  heading_context: chunk.metadata.heading_context,
+                } : null,
               }
             })
             .filter((c): c is NonNullable<typeof c> => c !== null)
@@ -683,37 +903,68 @@ function normalizeParagraphs(
   pageHeight: number
 ): Paragraph[] {
   const paras: Paragraph[] = []
-  let current: Paragraph = { text: "", rects: [] }
+  let current: Paragraph = { text: "", rects: [], isHeading: false }
   
   // Track font sizes to detect headings
   const fontSizes: number[] = []
   let currentFontSize = 0
+  let avgFontSize = 12
+
+  // First pass: collect font sizes to determine average
+  for (const item of items) {
+    if (item.transform && item.transform[0]) {
+      fontSizes.push(item.transform[0])
+    }
+  }
+  if (fontSizes.length > 0) {
+    avgFontSize = fontSizes.reduce((a, b) => a + b, 0) / fontSizes.length
+  }
 
   for (const item of items) {
     const str = item.str as string
     if (!str || !str.trim()) {
       if (current.text.trim()) {
         paras.push(current)
-        current = { text: "", rects: [] }
+        current = { text: "", rects: [], isHeading: false }
       }
       continue
     }
 
     const [x, y] = item.transform.slice(4, 6)
-    const fontSize = item.transform[0] || 12 // Extract font size from transform matrix
-    fontSizes.push(fontSize)
+    const fontSize = item.transform[0] || 12
     currentFontSize = fontSize
 
-    // Detect potential headings (larger font, centered, or all caps)
-    const isPotentialHeading = 
-      fontSize > 14 || // Larger font
-      (str.length < 100 && /^[A-Z\s]+$/.test(str.trim())) || // All caps short text
-      (Math.abs(x / pageWidth - 0.5) < 0.1 && str.length < 150) // Centered short text
+    // Enhanced heading detection with levels
+    const isLargerFont = fontSize > avgFontSize * 1.15
+    const isAllCaps = str.length < 100 && /^[A-Z\s\d]+$/.test(str.trim()) && str.trim().length > 3
+    const isCentered = Math.abs(x / pageWidth - 0.5) < 0.15 && str.length < 150
+    const isNumberedSection = /^(?:\d+\.|\([a-z]\)|\([ivx]+\)|[IVXLCDM]+\.|Article|Section|Part|Chapter)\s/i.test(str.trim())
+    
+    const isPotentialHeading = isLargerFont || isAllCaps || (isCentered && str.length < 100) || isNumberedSection
+    
+    // Determine heading level (1 = major, 2 = medium, 3 = minor)
+    let headingLevel: number | undefined
+    if (isPotentialHeading) {
+      if (fontSize > avgFontSize * 1.4 || /^(CHAPTER|PART|ARTICLE)\s/i.test(str.trim())) {
+        headingLevel = 1
+      } else if (fontSize > avgFontSize * 1.2 || /^(Section|\d+\.)\s/i.test(str.trim())) {
+        headingLevel = 2
+      } else {
+        headingLevel = 3
+      }
+    }
+
+    // Extract section number if present
+    let sectionNumber: string | undefined
+    const sectionMatch = str.trim().match(/^((?:\d+\.)+\d*|[IVXLCDM]+|\([a-z]\)|\([ivx]+\))\s/i)
+    if (sectionMatch) {
+      sectionNumber = sectionMatch[1]
+    }
 
     // Break paragraph on heading indicators
     if (isPotentialHeading && current.text.trim()) {
       paras.push(current)
-      current = { text: "", rects: [] }
+      current = { text: "", rects: [], isHeading: true, headingLevel, sectionNumber }
     }
 
     current.rects.push({
@@ -724,6 +975,13 @@ function normalizeParagraphs(
     })
 
     current.text += str + " "
+    
+    // Mark current paragraph as heading if detected
+    if (isPotentialHeading) {
+      current.isHeading = true
+      current.headingLevel = headingLevel
+      if (sectionNumber) current.sectionNumber = sectionNumber
+    }
   }
 
   if (current.text.trim()) paras.push(current)
@@ -780,23 +1038,26 @@ function detectLegalReasoningPatterns(text: string): string[] {
   return patterns
 }
 
-function contextualChunkParagraphs(paragraphs: Paragraph[]) {
-  const MAX_CHARS = 1500 // Increased for better context and fewer chunks
-  const MIN_CHARS = 300 // Increased minimum for more substantial chunks
-  const OVERLAP_CHARS = 200 // Increased overlap for better retrieval
-  const MAX_CHUNK_CHARS = 1800 // Hard limit increased proportionally
+function contextualChunkParagraphs(paragraphs: Paragraph[], docType: string = "default") {
+  // Get document-type-specific configuration
+  const config = CHUNK_CONFIGS[docType] || CHUNK_CONFIGS.default
+  const { MAX_CHARS, MIN_CHARS, OVERLAP_CHARS, MAX_CHUNK_CHARS, preserveIRAC, preserveStatuteSections } = config
 
   const chunks: {
     text: string
     rects: NormalizedRect[]
     paragraph_index: number
     isHeading?: boolean
+    metadata?: ChunkMetadata
+    paragraphs?: Paragraph[] // Keep track of source paragraphs for metadata
   }[] = []
 
   let bufferText = ""
   let bufferRects: NormalizedRect[] = []
+  let bufferParagraphs: Paragraph[] = []
   let bufferStartPara = 0
   let lastChunkEndPara = -1
+  let currentIRACPhase: string | null = null
 
   for (let i = 0; i < paragraphs.length; i++) {
     const p = paragraphs[i]
@@ -804,12 +1065,13 @@ function contextualChunkParagraphs(paragraphs: Paragraph[]) {
     
     if (!paraText) continue
 
-    // Detect headings (short paragraphs, all caps, or numbered sections)
-    const isHeading = 
+    // Use paragraph's heading detection
+    const isHeading = p.isHeading || (
       paraText.length < 150 &&
       (/^[A-Z\s\d\.]+$/.test(paraText) || 
        /^\d+[\.\)]\s+[A-Z]/.test(paraText) ||
        /^(Chapter|Section|Part|Article)\s+\d+/i.test(paraText))
+    )
 
     const candidate = bufferText ? bufferText + " " + paraText : paraText
 
@@ -828,6 +1090,30 @@ function contextualChunkParagraphs(paragraphs: Paragraph[]) {
     // Enhanced break detection: break before major legal reasoning shifts
     const bufferPatterns = bufferText ? detectLegalReasoningPatterns(bufferText) : []
     const paraPatterns = detectLegalReasoningPatterns(paraText)
+    
+    // IRAC-aware chunking for case law
+    let iracPhaseShift = false
+    if (preserveIRAC) {
+      const newIRACPhase = detectIRACPhase(paraText)
+      if (newIRACPhase && currentIRACPhase && newIRACPhase !== currentIRACPhase && bufferText.length >= MIN_CHARS) {
+        iracPhaseShift = true
+      }
+      if (newIRACPhase) {
+        currentIRACPhase = newIRACPhase
+      }
+    }
+    
+    // Statute section-aware chunking
+    let statuteSectionBreak = false
+    if (preserveStatuteSections) {
+      const hasNewSection = /^(?:Section|§|Article|Part)\s+\d+/i.test(paraText) || 
+                           /^\(\d+\)\s/.test(paraText) ||
+                           /^\d+\.\s+[A-Z]/.test(paraText)
+      if (hasNewSection && bufferText.length >= MIN_CHARS * 0.5) {
+        statuteSectionBreak = true
+      }
+    }
+    
     const reasoningShift = paraPatterns.some((pattern: string) =>
       ['issue_statement', 'rule_statement', 'conclusion', 'definition'].includes(pattern) &&
       !bufferPatterns.some(bp => bp === pattern) &&
@@ -840,14 +1126,19 @@ function contextualChunkParagraphs(paragraphs: Paragraph[]) {
       shouldBreakOnHeading ||
       shouldBreakOnCitation ||
       reasoningShift ||
+      iracPhaseShift ||
+      statuteSectionBreak ||
       candidate.length > MAX_CHUNK_CHARS
     ) {
-      // Save current chunk
+      // Save current chunk with metadata
       if (bufferText.trim()) {
+        const metadata = extractChunkMetadata(bufferText.trim(), bufferParagraphs)
         chunks.push({
           text: bufferText.trim(),
           rects: bufferRects,
           paragraph_index: bufferStartPara,
+          metadata,
+          paragraphs: bufferParagraphs,
         })
         lastChunkEndPara = i - 1
       }
@@ -857,41 +1148,50 @@ function contextualChunkParagraphs(paragraphs: Paragraph[]) {
         const overlapStart = Math.max(bufferStartPara, lastChunkEndPara - 2)
         let overlapText = ""
         let overlapRects: NormalizedRect[] = []
+        let overlapParagraphs: Paragraph[] = []
         
         for (let j = overlapStart; j < i && j < paragraphs.length; j++) {
           const overlapPara = paragraphs[j]
           if (overlapText.length < OVERLAP_CHARS) {
             overlapText += (overlapText ? " " : "") + overlapPara.text.trim()
             overlapRects.push(...overlapPara.rects)
+            overlapParagraphs.push(overlapPara)
           }
         }
         
         if (overlapText) {
           bufferText = overlapText + " " + paraText
           bufferRects = [...overlapRects, ...p.rects]
+          bufferParagraphs = [...overlapParagraphs, p]
           bufferStartPara = overlapStart
         } else {
           bufferText = paraText
           bufferRects = [...p.rects]
+          bufferParagraphs = [p]
           bufferStartPara = i
         }
       } else {
         bufferText = paraText
         bufferRects = [...p.rects]
+        bufferParagraphs = [p]
         bufferStartPara = i
       }
     } else {
       bufferText = candidate
       bufferRects.push(...p.rects)
+      bufferParagraphs.push(p)
     }
   }
 
-  // Add final chunk
+  // Add final chunk with metadata
   if (bufferText.trim()) {
+    const metadata = extractChunkMetadata(bufferText.trim(), bufferParagraphs)
     chunks.push({
       text: bufferText.trim(),
       rects: bufferRects,
       paragraph_index: bufferStartPara,
+      metadata,
+      paragraphs: bufferParagraphs,
     })
   }
 
@@ -902,10 +1202,15 @@ function contextualChunkParagraphs(paragraphs: Paragraph[]) {
     if (chunk.text.length < MIN_CHARS && i < chunks.length - 1) {
       // Merge small chunk with next
       const nextChunk = chunks[i + 1]
+      const mergedText = chunk.text + " " + nextChunk.text
+      const mergedParagraphs = [...(chunk.paragraphs || []), ...(nextChunk.paragraphs || [])]
+      const mergedMetadata = extractChunkMetadata(mergedText, mergedParagraphs)
       finalChunks.push({
-        text: chunk.text + " " + nextChunk.text,
+        text: mergedText,
         rects: [...chunk.rects, ...nextChunk.rects],
         paragraph_index: chunk.paragraph_index,
+        metadata: mergedMetadata,
+        paragraphs: mergedParagraphs,
       })
       i++ // Skip next chunk as it's been merged
     } else {
@@ -914,6 +1219,39 @@ function contextualChunkParagraphs(paragraphs: Paragraph[]) {
   }
 
   return finalChunks
+}
+
+/* ================= IRAC PHASE DETECTION ================= */
+
+function detectIRACPhase(text: string): string | null {
+  const lowerText = text.toLowerCase()
+  
+  // Issue indicators
+  if (/\b(issue|question|matter|problem)\s+(is|before|presented|to be decided)/i.test(text) ||
+      /\bwhether\b.*\?/i.test(text)) {
+    return "issue"
+  }
+  
+  // Rule indicators
+  if (/\b(rule|law|standard|test|principle|doctrine)\s+(is|provides|states|requires)/i.test(text) ||
+      /\bunder\s+(the\s+)?\w+\s+(act|statute|law|rule)/i.test(text) ||
+      /\b(established|settled|well-established)\s+(law|principle|rule)/i.test(text)) {
+    return "rule"
+  }
+  
+  // Application indicators
+  if (/\b(applying|application|here|in this case|in the present case)/i.test(text) ||
+      /\bthe\s+(facts|evidence|record)\s+(shows?|demonstrates?|indicates?)/i.test(text)) {
+    return "application"
+  }
+  
+  // Conclusion indicators
+  if (/\b(therefore|accordingly|thus|hence|we (hold|conclude|find)|it is (held|concluded)|in conclusion)/i.test(text) ||
+      /\b(affirmed|reversed|remanded|dismissed|granted|denied)\b/i.test(text)) {
+    return "conclusion"
+  }
+  
+  return null
 }
 
 /* ================= IMPROVED SEMANTIC CONTINUITY ================= */

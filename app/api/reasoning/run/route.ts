@@ -61,6 +61,281 @@ const throttlingDetectedAt = () => {
 
 const MAX_EVIDENCE_CHARS = 50_000
 
+/* ================= MMR (MAXIMAL MARGINAL RELEVANCE) ================= */
+
+// Tokenize text for similarity computation
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/\W+/)
+      .filter(w => w.length > 2)
+  )
+}
+
+// Compute Jaccard similarity between two texts (0-1)
+function computeTextSimilarity(textA: string, textB: string): number {
+  const tokensA = tokenize(textA)
+  const tokensB = tokenize(textB)
+  
+  if (tokensA.size === 0 || tokensB.size === 0) return 0
+  
+  let intersection = 0
+  for (const t of tokensA) {
+    if (tokensB.has(t)) intersection++
+  }
+  
+  const union = tokensA.size + tokensB.size - intersection
+  return union > 0 ? intersection / union : 0
+}
+
+// MMR chunk selection that balances relevance with diversity
+type ScoredChunk = {
+  id: string
+  source_id: string
+  content: string
+  score: number
+  similarity: number
+  source_type: string
+  [key: string]: any
+}
+
+function selectChunksWithMMR(
+  chunks: ScoredChunk[],
+  targetCharCount: number,
+  lambda: number = 0.7,  // 0.7 relevance, 0.3 diversity
+  maxPerSource: number = 10,
+  runId?: string
+): { selected: ScoredChunk[], usedChars: number } {
+  const selected: ScoredChunk[] = []
+  const remaining = [...chunks]
+  const sourceChunkCounts = new Map<string, number>()
+  let usedChars = 0
+  
+  // Precompute max similarity scores to speed up MMR
+  const selectedTexts: string[] = []
+  
+  while (remaining.length > 0 && usedChars < targetCharCount) {
+    let bestIdx = -1
+    let bestMMRScore = -Infinity
+    
+    for (let i = 0; i < remaining.length; i++) {
+      const chunk = remaining[i]
+      const chunkText = chunk.content || ""
+      const chunkLength = chunkText.length
+      
+      // Skip if adding this chunk would exceed char limit
+      if (usedChars + chunkLength > targetCharCount) continue
+      
+      // Skip if source already has max chunks
+      const sourceCount = sourceChunkCounts.get(chunk.source_id) || 0
+      if (sourceCount >= maxPerSource) continue
+      
+      // Compute relevance (normalized score)
+      const relevance = chunk.score
+      
+      // Compute max similarity to already selected chunks
+      let maxSimToSelected = 0
+      if (selectedTexts.length > 0) {
+        for (const selectedText of selectedTexts) {
+          const sim = computeTextSimilarity(chunkText, selectedText)
+          if (sim > maxSimToSelected) {
+            maxSimToSelected = sim
+          }
+        }
+      }
+      
+      // MMR score: λ * relevance - (1-λ) * max_similarity_to_selected
+      const mmrScore = lambda * relevance - (1 - lambda) * maxSimToSelected
+      
+      // Apply source diversity bonus for underrepresented sources
+      const sourceDiversityBonus = sourceCount === 0 ? 0.1 : (sourceCount < 3 ? 0.05 : 0)
+      const finalMMRScore = mmrScore + sourceDiversityBonus
+      
+      if (finalMMRScore > bestMMRScore) {
+        bestMMRScore = finalMMRScore
+        bestIdx = i
+      }
+    }
+    
+    // No valid chunk found
+    if (bestIdx === -1) break
+    
+    // Add the best chunk
+    const bestChunk = remaining.splice(bestIdx, 1)[0]
+    selected.push(bestChunk)
+    selectedTexts.push(bestChunk.content || "")
+    usedChars += (bestChunk.content || "").length
+    sourceChunkCounts.set(
+      bestChunk.source_id,
+      (sourceChunkCounts.get(bestChunk.source_id) || 0) + 1
+    )
+  }
+  
+  if (runId) {
+    const sourceDistribution: Record<string, number> = {}
+    for (const [sourceId, count] of sourceChunkCounts.entries()) {
+      const sourceType = selected.find(c => c.source_id === sourceId)?.source_type || "unknown"
+      sourceDistribution[sourceType] = (sourceDistribution[sourceType] || 0) + count
+    }
+    
+    log(runId, "MMR_SELECTION_COMPLETE", {
+      total_selected: selected.length,
+      sources_represented: sourceChunkCounts.size,
+      chars_used: usedChars,
+      lambda: lambda,
+      source_distribution: sourceDistribution,
+    })
+  }
+  
+  return { selected, usedChars }
+}
+
+/* ================= ARGUMENT-BASED CHUNK RE-RANKING ================= */
+
+type ArgumentationLine = {
+  id: string
+  title: string
+  description: string
+  approach: string
+  focus_areas: string[]
+  tone: string
+  structure: {
+    sections: Array<{
+      section_index: number
+      title: string
+      description: string
+    }>
+  }
+}
+
+// Compute semantic overlap between text and a term
+function hasSemanticOverlap(text: string, term: string): boolean {
+  const textLower = text.toLowerCase()
+  const termLower = term.toLowerCase()
+  
+  // Direct match
+  if (textLower.includes(termLower)) return true
+  
+  // Check for word overlap (at least 2 words)
+  const termWords = termLower.split(/\s+/).filter(w => w.length > 3)
+  const matchingWords = termWords.filter(w => textLower.includes(w))
+  return matchingWords.length >= Math.min(2, termWords.length)
+}
+
+// Re-rank chunks based on selected argumentation line(s)
+function rerankChunksForArgument(
+  chunks: ScoredChunk[],
+  argument: ArgumentationLine | ArgumentationLine[],
+  runId?: string
+): ScoredChunk[] {
+  // Handle combined arguments: merge focus areas and sections
+  const args = Array.isArray(argument) ? argument : [argument]
+  
+  const allFocusAreas: string[] = []
+  const allSectionTopics: string[] = []
+  const allApproaches: string[] = []
+  
+  for (const arg of args) {
+    // Extract focus area terms
+    if (arg.focus_areas) {
+      for (const area of arg.focus_areas) {
+        allFocusAreas.push(...area.toLowerCase().split(/\s+/).filter(w => w.length > 3))
+      }
+    }
+    
+    // Extract section topics
+    if (arg.structure?.sections) {
+      for (const section of arg.structure.sections) {
+        allSectionTopics.push(section.title.toLowerCase())
+        if (section.description) {
+          allSectionTopics.push(section.description.toLowerCase())
+        }
+      }
+    }
+    
+    // Extract approach terms
+    if (arg.approach) {
+      allApproaches.push(...arg.approach.toLowerCase().split(/\s+/).filter(w => w.length > 3))
+    }
+    
+    // Extract title/description terms
+    if (arg.title) {
+      allFocusAreas.push(...arg.title.toLowerCase().split(/\s+/).filter(w => w.length > 3))
+    }
+    if (arg.description) {
+      allFocusAreas.push(...arg.description.toLowerCase().split(/\s+/).filter(w => w.length > 4))
+    }
+  }
+  
+  // Deduplicate terms
+  const focusTerms = [...new Set(allFocusAreas)]
+  const sectionTopics = [...new Set(allSectionTopics)]
+  const approachTerms = [...new Set(allApproaches)]
+  
+  if (runId) {
+    log(runId, "ARGUMENT_RERANKING_START", {
+      argument_count: args.length,
+      focus_terms_count: focusTerms.length,
+      section_topics_count: sectionTopics.length,
+      approach_terms_count: approachTerms.length,
+      sample_focus_terms: focusTerms.slice(0, 10),
+      sample_section_topics: sectionTopics.slice(0, 5),
+    })
+  }
+  
+  // Re-rank chunks based on argument alignment
+  const rerankedChunks = chunks.map(chunk => {
+    const text = (chunk.content || "").toLowerCase()
+    
+    // Boost for focus area matches
+    const focusMatches = focusTerms.filter(t => text.includes(t)).length
+    const focusBoost = Math.min(0.3, (focusMatches / Math.max(1, focusTerms.length)) * 0.3)
+    
+    // Boost for section topic alignment
+    let sectionBoost = 0
+    for (const topic of sectionTopics) {
+      if (hasSemanticOverlap(text, topic)) {
+        sectionBoost += 0.1
+        break // Only count once per topic
+      }
+    }
+    sectionBoost = Math.min(0.25, sectionBoost)
+    
+    // Boost for approach alignment
+    const approachMatches = approachTerms.filter(t => text.includes(t)).length
+    const approachBoost = Math.min(0.15, (approachMatches / Math.max(1, approachTerms.length)) * 0.15)
+    
+    // Calculate total argument alignment
+    const argumentAlignment = focusBoost + sectionBoost + approachBoost
+    
+    return {
+      ...chunk,
+      score: chunk.score + argumentAlignment,
+      argument_alignment: argumentAlignment,
+      focus_matches: focusMatches,
+      section_alignment: sectionBoost > 0,
+    }
+  })
+  
+  // Sort by new score
+  rerankedChunks.sort((a, b) => b.score - a.score)
+  
+  if (runId) {
+    const topAligned = rerankedChunks.slice(0, 10).filter(c => c.argument_alignment > 0)
+    log(runId, "ARGUMENT_RERANKING_COMPLETE", {
+      chunks_with_alignment: rerankedChunks.filter(c => c.argument_alignment > 0).length,
+      top_alignment_scores: topAligned.map(c => ({
+        score: c.score.toFixed(3),
+        alignment: c.argument_alignment.toFixed(3),
+        focus_matches: c.focus_matches,
+      })),
+    })
+  }
+  
+  return rerankedChunks
+}
+
 /* ================= TYPES ================= */
 
 type ReasoningRunInput = {
@@ -753,16 +1028,43 @@ async function executeGeneration(params: GenerationParams): Promise<{
     })),
   })
 
-  // Select chunks with ARGUMENT-AWARE diversity enforcement
-  let usedChars = 0
-  const boundedChunks: any[] = []
-  const sourceChunkCounts = new Map<string, number>()
-  const selectedSourceIds = new Set<string>()
-  const selectedSourceTypes = new Set<string>()
-  const selectedArgumentGroups = new Set<string>()
+  /* ================= ARGUMENT-BASED RE-RANKING (Source of Truth) ================= */
+  // If an argumentation line is provided, re-rank chunks to prioritize evidence
+  // that supports the selected approach. This makes the argument the "source of truth"
+  // for the generation process.
   
-  const chunksBySource = new Map<string, typeof scoredChunks>()
-  for (const chunk of scoredChunks) {
+  let finalScoredChunks = scoredChunks
+  
+  if (approach?.argumentation_line) {
+    log(runId, "ARGUMENT_RERANKING_TRIGGERED", {
+      argument_id: approach.argumentation_line.id,
+      argument_title: approach.argumentation_line.title,
+      focus_areas: approach.argumentation_line.focus_areas,
+    })
+    
+    // Support combined arguments if multiple are provided (future enhancement)
+    // For now, handle single argumentation line
+    finalScoredChunks = rerankChunksForArgument(
+      scoredChunks as ScoredChunk[],
+      approach.argumentation_line as ArgumentationLine,
+      runId
+    )
+    
+    // Re-sort after re-ranking
+    finalScoredChunks.sort((a: any, b: any) => b.score - a.score)
+    
+    log(runId, "ARGUMENT_RERANKING_APPLIED", {
+      chunks_boosted: finalScoredChunks.filter((c: any) => c.argument_alignment > 0).length,
+      top_reranked_scores: finalScoredChunks.slice(0, 5).map((c: any) => ({
+        score: c.score.toFixed(3),
+        argument_alignment: c.argument_alignment?.toFixed(3) || "0",
+      })),
+    })
+  }
+
+  // Select chunks using MMR (Maximal Marginal Relevance) for diversity
+  const chunksBySource = new Map<string, typeof finalScoredChunks>()
+  for (const chunk of finalScoredChunks) {
     if (!chunksBySource.has(chunk.source_id)) {
       chunksBySource.set(chunk.source_id, [])
     }
@@ -770,170 +1072,47 @@ async function executeGeneration(params: GenerationParams): Promise<{
   }
 
   const totalSources = chunksBySource.size
-  const targetSources = Math.min(totalSources, Math.max(3, Math.min(8, Math.floor(totalSources * 0.5))))
   const avgChunkSize = 500
   const estimatedChunks = Math.floor(MAX_EVIDENCE_CHARS / avgChunkSize)
-  const maxChunksPerSource = Math.max(2, Math.floor(estimatedChunks / targetSources))
-  const hardMaxPerSource = Math.max(maxChunksPerSource, Math.ceil(estimatedChunks * 0.3))
+  const maxChunksPerSource = Math.max(3, Math.ceil(estimatedChunks / Math.max(totalSources, 1) * 1.5))
   const primaryLawTypes = new Set(['statute', 'treaty', 'regulation', 'constitution', 'case'])
 
-  log(runId, "DIVERSITY_CONFIG", {
+  log(runId, "MMR_DIVERSITY_CONFIG", {
     total_sources: totalSources,
-    target_sources: targetSources,
     estimated_total_chunks: estimatedChunks,
     max_chunks_per_source: maxChunksPerSource,
-    hard_max_per_source: hardMaxPerSource,
+    lambda: 0.7,
   })
 
-  const sourcesByType = new Map<string, Array<{ sourceId: string; chunks: typeof scoredChunks }>>()
-  for (const [sourceId, sourceChunks] of chunksBySource.entries()) {
-    const sourceType = sourceIdToType.get(sourceId) || "unknown"
-    if (!sourcesByType.has(sourceType)) {
-      sourcesByType.set(sourceType, [])
+  // Boost primary law source scores slightly before MMR
+  const boostedChunks = finalScoredChunks.map((chunk: any) => {
+    const sourceType = sourceIdToType.get(chunk.source_id) || "unknown"
+    const isPrimaryLaw = primaryLawTypes.has(sourceType)
+    return {
+      ...chunk,
+      score: isPrimaryLaw ? chunk.score * 1.1 : chunk.score,
     }
-    const sortedChunks = [...sourceChunks].sort((a, b) => b.score - a.score)
-    sourcesByType.get(sourceType)!.push({ sourceId, chunks: sortedChunks })
-  }
+  })
 
-  // PRIORITY 1: Primary law sources
-  for (const [sourceType, sources] of sourcesByType.entries()) {
-    if (primaryLawTypes.has(sourceType) && sources.length > 0) {
-      sources.sort((a, b) => (b.chunks[0]?.score || 0) - (a.chunks[0]?.score || 0))
-      for (const { sourceId, chunks } of sources) {
-        const currentCount = sourceChunkCounts.get(sourceId) || 0
-        if (currentCount >= hardMaxPerSource) continue
+  // Use MMR for chunk selection - balances relevance (0.7) with diversity (0.3)
+  const { selected: boundedChunks, usedChars: initialUsedChars } = selectChunksWithMMR(
+    boostedChunks as ScoredChunk[],
+    MAX_EVIDENCE_CHARS,
+    0.7,  // lambda: 70% relevance, 30% diversity
+    maxChunksPerSource,
+    runId
+  )
+  
+  // Track used chars for expansion (mutable)
+  let usedChars = initialUsedChars
 
-        let groupAdded = false
-        for (const [groupId, chunkIds] of argumentGroups.entries()) {
-          if (groupId.startsWith(`${sourceId}_arg_`) && !selectedArgumentGroups.has(groupId)) {
-            const groupChunks = chunkIds.map((id: string) => chunks.find((c: any) => c.id === id)).filter((c: any) => c !== undefined)
-            if (groupChunks.length >= 2) {
-              const groupTextLength = groupChunks.reduce((sum, c) => sum + (c.content?.length || 0), 0)
-              if (usedChars + groupTextLength <= MAX_EVIDENCE_CHARS && currentCount + groupChunks.length <= hardMaxPerSource) {
-                for (const chunk of groupChunks) {
-                  if (!boundedChunks.some(c => c.id === chunk.id)) {
-                    boundedChunks.push(chunk)
-                    usedChars += chunk.content?.length || 0
-                    sourceChunkCounts.set(sourceId, (sourceChunkCounts.get(sourceId) || 0) + 1)
-                    selectedSourceIds.add(sourceId)
-                    selectedSourceTypes.add(sourceType)
-                  }
-                }
-                selectedArgumentGroups.add(groupId)
-                groupAdded = true
-                break
-              }
-            }
-          }
-        }
-
-        if (!groupAdded) {
-          const targetChunks = Math.min(2, chunks.length)
-          for (let i = 0; i < targetChunks; i++) {
-            const chunk = chunks[i]
-            const text = chunk.content
-            if (usedChars + text.length <= MAX_EVIDENCE_CHARS && currentCount < hardMaxPerSource && !boundedChunks.some(c => c.id === chunk.id)) {
-              boundedChunks.push(chunk)
-              usedChars += text.length
-              sourceChunkCounts.set(sourceId, currentCount + 1)
-              selectedSourceIds.add(sourceId)
-              selectedSourceTypes.add(sourceType)
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // PRIORITY 2: Other sources
-  for (const [sourceType, sources] of sourcesByType.entries()) {
-    if (!primaryLawTypes.has(sourceType) && sources.length > 0) {
-      sources.sort((a, b) => (b.chunks[0]?.score || 0) - (a.chunks[0]?.score || 0))
-      for (const { sourceId, chunks } of sources) {
-        if (chunks.length === 0) continue
-        const bestChunk = chunks[0]
-        const text = bestChunk.content
-        const currentCount = sourceChunkCounts.get(sourceId) || 0
-        if (usedChars + text.length <= MAX_EVIDENCE_CHARS && currentCount < hardMaxPerSource && !boundedChunks.some(c => c.id === bestChunk.id)) {
-          boundedChunks.push(bestChunk)
-          usedChars += text.length
-          sourceChunkCounts.set(sourceId, currentCount + 1)
-          selectedSourceIds.add(sourceId)
-          selectedSourceTypes.add(sourceType)
-        }
-      }
-    }
-  }
-
-  // Second pass: quota-based selection
-  const sourceQuotas = new Map<string, number>()
-  const sourceChunkLists = Array.from(chunksBySource.entries())
-  const unselectedSources = sourceChunkLists.filter(([id]) => !selectedSourceIds.has(id))
-  const selectedSources = sourceChunkLists.filter(([id]) => selectedSourceIds.has(id))
-  unselectedSources.sort((a, b) => (b[1][0]?.score || 0) - (a[1][0]?.score || 0))
-  selectedSources.sort((a, b) => (b[1][0]?.score || 0) - (a[1][0]?.score || 0))
-  const sourcesToAllocate = [...unselectedSources.slice(0, targetSources), ...selectedSources]
-  const sourcesForQuota = sourcesToAllocate.slice(0, targetSources)
-  for (const [sourceId] of sourcesForQuota) {
-    sourceQuotas.set(sourceId, maxChunksPerSource)
-  }
-
-  let sourceIndex = 0
-  const maxIterations = estimatedChunks * 3
-  let iterations = 0
-
-  while (usedChars < MAX_EVIDENCE_CHARS && iterations < maxIterations) {
-    iterations++
-    let addedAny = false
-    const sourcesWithQuota = Array.from(sourceQuotas.entries())
-    if (sourcesWithQuota.length === 0) break
-
-    for (let i = 0; i < sourcesWithQuota.length; i++) {
-      const sourceIdx = (sourceIndex + i) % sourcesWithQuota.length
-      const [sourceId, quota] = sourcesWithQuota[sourceIdx]
-      const sourceChunks = chunksBySource.get(sourceId) || []
-      const currentCount = sourceChunkCounts.get(sourceId) || 0
-      if (currentCount >= quota || currentCount >= hardMaxPerSource) continue
-
-      for (const chunk of sourceChunks) {
-        if (usedChars >= MAX_EVIDENCE_CHARS) break
-        if (currentCount >= quota || currentCount >= hardMaxPerSource) break
-        if (boundedChunks.some(c => c.id === chunk.id)) continue
-        const text = chunk.content
-        if (usedChars + text.length > MAX_EVIDENCE_CHARS) continue
-
-        boundedChunks.push(chunk)
-        usedChars += text.length
-        sourceChunkCounts.set(sourceId, currentCount + 1)
-        selectedSourceIds.add(sourceId)
-        addedAny = true
-        break
-      }
-    }
-
-    sourceIndex = (sourceIndex + 1) % sourcesWithQuota.length
-    if (!addedAny) break
-  }
-
-  // Third pass: fill remaining space
-  if (usedChars < MAX_EVIDENCE_CHARS * 0.9) {
-    const remainingChunks = scoredChunks.filter(
-      (c: any) => !boundedChunks.some((bc: any) => bc.id === c.id) && 
-           (usedChars + (c.content?.length || 0) <= MAX_EVIDENCE_CHARS) &&
-           ((sourceChunkCounts.get(c.source_id) || 0) < hardMaxPerSource)
+  // Calculate source distribution for logging
+  const sourceChunkCounts = new Map<string, number>()
+  for (const chunk of boundedChunks) {
+    sourceChunkCounts.set(
+      chunk.source_id,
+      (sourceChunkCounts.get(chunk.source_id) || 0) + 1
     )
-    remainingChunks.sort((a: any, b: any) => b.score - a.score)
-    for (const chunk of remainingChunks) {
-      if (usedChars >= MAX_EVIDENCE_CHARS) break
-      const sourceId = chunk.source_id
-      const currentCount = sourceChunkCounts.get(sourceId) || 0
-      if (currentCount >= hardMaxPerSource) continue
-      const text = chunk.content
-      if (usedChars + text.length > MAX_EVIDENCE_CHARS) continue
-      boundedChunks.push(chunk)
-      usedChars += text.length
-      sourceChunkCounts.set(sourceId, currentCount + 1)
-    }
   }
 
   const sourceDistribution: Record<string, number> = {}
@@ -1039,7 +1218,7 @@ async function executeGeneration(params: GenerationParams): Promise<{
             const adjacentText = adjacentChunk.text || ""
             const additionalChars = adjacentText.length
             if (usedChars + additionalChars <= MAX_EVIDENCE_CHARS * 1.1) {
-              const originalChunk = scoredChunks.find((c: any) => c.id === adjacentChunk.id) || rawChunks?.find((c: any) => c.id === adjacentChunk.id)
+              const originalChunk = finalScoredChunks.find((c: any) => c.id === adjacentChunk.id) || rawChunks?.find((c: any) => c.id === adjacentChunk.id)
               if (originalChunk) {
                 expandedChunks.push({ ...originalChunk, is_expanded_context: true })
               } else {
@@ -1081,7 +1260,7 @@ async function executeGeneration(params: GenerationParams): Promise<{
 
   log(runId, "CHUNK_SELECTION_COMPLETE", {
     total_chunks: boundedChunks.length,
-    sources_represented: selectedSourceIds.size,
+    sources_represented: sourceChunkCounts.size,
     chars_used: usedChars,
     chars_capacity: MAX_EVIDENCE_CHARS,
     utilization_percent: ((usedChars / MAX_EVIDENCE_CHARS) * 100).toFixed(1),

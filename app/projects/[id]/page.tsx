@@ -506,7 +506,7 @@ export default function ProjectPage() {
         maxWidth: "1100px",
         margin: "0 auto"
       }}>
-        {/* Enhanced Header */}
+        {/* Workflow Header */}
         <div style={{
           background: "#fff",
           border: "1px solid #e5e7eb",
@@ -519,118 +519,277 @@ export default function ProjectPage() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginBottom: "16px",
-            flexDirection: "column",
-            gap: "12px"
+            marginBottom: "24px"
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "16px", width: "100%" }}>
-              <Link
-                href="/projects"
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "6px",
-                  background: "#ffffff",
-                  color: "#374151",
-                  fontSize: "14px",
-                  fontWeight: 500,
-                  textDecoration: "none",
-                  border: "1px solid #e5e7eb",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  transition: "all 0.2s"
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#f9fafb"
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#ffffff"
-                }}
-              >
-                ← Back to Projects
-              </Link>
-            </div>
-            <h1 style={{
-              fontSize: "32px",
-              fontWeight: 700,
-              color: "#111",
-              margin: 0
-            }}>
-              {project.title}
-            </h1>
+            <Link
+              href="/projects"
+              style={{
+                padding: "8px 16px",
+                borderRadius: "6px",
+                background: "#ffffff",
+                color: "#374151",
+                fontSize: "14px",
+                fontWeight: 500,
+                textDecoration: "none",
+                border: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#f9fafb"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#ffffff"
+              }}
+            >
+              ← Back to Projects
+            </Link>
+
             <div style={{
               padding: "6px 12px",
-              background: "#ecfdf5",
-              border: "1px solid #d1fae5",
+              background: sources.length > 0 ? "#ecfdf5" : "#fef3c7",
+              border: `1px solid ${sources.length > 0 ? "#d1fae5" : "#fde68a"}`,
               borderRadius: "50px",
               fontSize: "12px",
               fontWeight: 600,
-              color: "#065f46",
+              color: sources.length > 0 ? "#065f46" : "#92400e",
               whiteSpace: "nowrap"
             }}>
-              {sources.length} source{sources.length !== 1 ? 's' : ''} uploaded
+              {sources.length === 0 ? "No sources uploaded" : `${sources.length} source${sources.length !== 1 ? 's' : ''} uploaded`}
             </div>
           </div>
 
-          <p style={{ fontSize: "15px", color: "#6b7280", margin: "8px 0 24px 0", lineHeight: 1.5 }}>
-            Build your research foundation by uploading legal sources. Start with primary law for comprehensive analysis.
-          </p>
+          <h1 style={{
+            fontSize: "28px",
+            fontWeight: 700,
+            color: "#111",
+            margin: "0 0 8px 0"
+          }}>
+            {project.title}
+          </h1>
 
-          {/* Quick Stats */}
-          <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>{sources.length}</div>
-              <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>Total Sources</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>
-                {sources.filter(s => !s.optimistic).length}
+          {/* Workflow Steps */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "32px",
+            marginBottom: "24px",
+            flexWrap: "wrap"
+          }}>
+            <div style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+              opacity: sources.length === 0 ? 1 : 0.6
+            }}>
+              <div style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                background: sources.length === 0 ? "#2563eb" : "#10b981",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "18px",
+                fontWeight: 600
+              }}>
+                1
               </div>
-              <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>Processed</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "24px", fontWeight: 700, color: "#2563eb" }}>
-                {selectedFiles.length}
+              <div style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                color: sources.length === 0 ? "#2563eb" : "#10b981",
+                textAlign: "center"
+              }}>
+                Upload Sources
               </div>
-              <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>Ready to Upload</div>
+            </div>
+
+            <div style={{
+              width: "60px",
+              height: "2px",
+              background: sources.length > 0 ? "#10b981" : "#e5e7eb",
+              flexShrink: 0
+            }}></div>
+
+            <div style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+              opacity: sources.length > 0 && sources.filter(s => !s.optimistic).length === 0 ? 1 : sources.length > 0 ? 0.6 : 0.3
+            }}>
+              <div style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                background: sources.length > 0 && sources.filter(s => !s.optimistic).length === 0 ? "#f59e0b" : sources.length > 0 ? "#10b981" : "#e5e7eb",
+                color: sources.length > 0 ? "#fff" : "#9ca3af",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "18px",
+                fontWeight: 600
+              }}>
+                2
+              </div>
+              <div style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                color: sources.length > 0 && sources.filter(s => !s.optimistic).length === 0 ? "#f59e0b" : sources.length > 0 ? "#10b981" : "#9ca3af",
+                textAlign: "center"
+              }}>
+                Processing
+              </div>
+            </div>
+
+            <div style={{
+              width: "60px",
+              height: "2px",
+              background: sources.filter(s => !s.optimistic).length > 0 ? "#10b981" : "#e5e7eb",
+              flexShrink: 0
+            }}></div>
+
+            <div style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+              opacity: sources.filter(s => !s.optimistic).length > 0 ? 1 : 0.3
+            }}>
+              <div style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                background: sources.filter(s => !s.optimistic).length > 0 ? "#10b981" : "#e5e7eb",
+                color: sources.filter(s => !s.optimistic).length > 0 ? "#fff" : "#9ca3af",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "18px",
+                fontWeight: 600,
+                cursor: sources.filter(s => !s.optimistic).length > 0 ? "pointer" : "default"
+              }}
+              onClick={() => sources.filter(s => !s.optimistic).length > 0 && router.push(`/projects/${id}/query`)}
+              >
+                3
+              </div>
+              <div style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                color: sources.filter(s => !s.optimistic).length > 0 ? "#10b981" : "#9ca3af",
+                textAlign: "center",
+                cursor: sources.filter(s => !s.optimistic).length > 0 ? "pointer" : "default"
+              }}
+              onClick={() => sources.filter(s => !s.optimistic).length > 0 && router.push(`/projects/${id}/query`)}
+              >
+                Start Research
+              </div>
             </div>
           </div>
+
+          {/* Status Message */}
+          {sources.length === 0 && (
+            <div style={{
+              textAlign: "center",
+              padding: "20px",
+              background: "#f8fafc",
+              borderRadius: "8px",
+              border: "1px solid #e2e8f0"
+            }}>
+              <div style={{ fontSize: "16px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+                🚀 Ready to start your research?
+              </div>
+              <div style={{ fontSize: "14px", color: "#6b7280", lineHeight: 1.5 }}>
+                Upload legal documents, case law, or academic sources below to build your research foundation.
+              </div>
+            </div>
+          )}
+
+          {sources.length > 0 && sources.filter(s => !s.optimistic).length === 0 && (
+            <div style={{
+              textAlign: "center",
+              padding: "20px",
+              background: "#fefce8",
+              borderRadius: "8px",
+              border: "1px solid #fde68a"
+            }}>
+              <div style={{ fontSize: "16px", fontWeight: 600, color: "#92400e", marginBottom: "8px" }}>
+                🔄 Processing your sources...
+              </div>
+              <div style={{ fontSize: "14px", color: "#a16207", lineHeight: 1.5 }}>
+                We're analyzing your uploaded documents. This may take a few minutes for large files.
+              </div>
+            </div>
+          )}
+
+          {sources.filter(s => !s.optimistic).length > 0 && (
+            <div style={{
+              textAlign: "center",
+              padding: "20px",
+              background: "#f0fdf4",
+              borderRadius: "8px",
+              border: "1px solid #bbf7d0"
+            }}>
+              <div style={{ fontSize: "16px", fontWeight: 600, color: "#166534", marginBottom: "8px" }}>
+                ✅ Ready to research!
+              </div>
+              <div style={{ fontSize: "14px", color: "#14532d", lineHeight: 1.5, marginBottom: "16px" }}>
+                Your sources are processed and ready. Click "Start Research" above or continue uploading more sources.
+              </div>
+              <button
+                onClick={() => router.push(`/projects/${id}/query`)}
+                style={{
+                  padding: "12px 24px",
+                  background: "#10b981",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: "0 2px 4px rgba(16, 185, 129, 0.2)"
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "#059669"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "#10b981"}
+              >
+                Start Research Now →
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* RECOMMENDATIONS SECTION */}
+        {/* Quick Tips */}
         {sources.length === 0 && (
           <div style={{
             background: "#ffffff",
             border: "1px solid #e5e7eb",
-            borderRadius: "8px",
-            padding: "24px",
+            borderRadius: "12px",
+            padding: "20px",
             marginBottom: "24px"
           }}>
-            <h2 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "12px", color: "#111" }}>
-              Getting Started
-            </h2>
-            <p style={{ fontSize: "14px", marginBottom: "16px", color: "#374151", lineHeight: 1.5 }}>
-              For optimal research results, begin by uploading primary legal sources such as cases and statutes,
-              followed by academic commentary and policy documents.
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              <div style={{ padding: "12px", background: "#f9fafb", borderRadius: "6px", border: "1px solid #f3f4f6" }}>
-                <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", color: "#111" }}>Primary Law</h3>
-                <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Cases, statutes, regulations - the foundation of legal research</p>
-              </div>
-              <div style={{ padding: "12px", background: "#f9fafb", borderRadius: "6px", border: "1px solid #f3f4f6" }}>
-                <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", color: "#111" }}>Academic Sources</h3>
-                <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Journal articles and commentaries for deeper analysis</p>
-              </div>
-              <div style={{ padding: "12px", background: "#f9fafb", borderRadius: "6px", border: "1px solid #f3f4f6" }}>
-                <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", color: "#111" }}>Policy Documents</h3>
-                <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Government reports and institutional perspectives</p>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "16px" }}>
+              <div style={{ fontSize: "24px" }}>💡</div>
+              <div>
+                <h3 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px", color: "#111" }}>
+                  Quick Start Tips
+                </h3>
+                <div style={{ display: "grid", gap: "8px", fontSize: "14px", color: "#374151" }}>
+                  <div>• Start with court decisions, statutes, or legal briefs</div>
+                  <div>• Upload 3-5 key documents to begin your research</div>
+                  <div>• You can always add more sources later</div>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ADD SOURCE */}
+        {/* UPLOAD SECTION */}
         <div
           style={{
             background: "#fff",
@@ -641,39 +800,19 @@ export default function ProjectPage() {
             boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
-            <h3 style={{ fontSize: "18px", fontWeight: 600, color: "#111", margin: 0 }}>
-              Upload Sources
+          <div style={{ marginBottom: "24px" }}>
+            <h3 style={{ fontSize: "20px", fontWeight: 600, color: "#111", margin: "0 0 8px 0" }}>
+              📄 Upload Documents
             </h3>
-            <button
-              onClick={() => setShowSourceGuidance(!showSourceGuidance)}
-              style={{
-                padding: "6px 12px",
-                background: "none",
-                border: "1px solid #d1d5db",
-                borderRadius: "6px",
-                fontSize: "12px",
-                color: "#6b7280",
-                cursor: "pointer",
-                transition: "all 0.2s"
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "#9ca3af"
-                e.currentTarget.style.color = "#374151"
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "#d1d5db"
-                e.currentTarget.style.color = "#6b7280"
-              }}
-            >
-              {showSourceGuidance ? "Hide Guide" : "Source Guide"}
-            </button>
+            <p style={{ fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5 }}>
+              Add legal documents, court cases, articles, or other sources to build your research foundation.
+            </p>
           </div>
 
-          {/* Source Type Selection with Guidance */}
+          {/* Source Type Selection */}
           <div style={{ marginBottom: "24px" }}>
             <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
-              Source Type
+              What type of document is this?
             </label>
             <select
               value={sourceType}
@@ -689,85 +828,22 @@ export default function ProjectPage() {
                 marginBottom: "8px",
               }}
             >
-              {SOURCE_CATEGORIES.map(cat => (
-                <optgroup key={cat.label} label={`${cat.label} - ${cat.description}`}>
-                  {cat.options.map(opt => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}{opt.description ? ` - ${opt.description}` : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
+              <option value="case">Court Case / Judgment</option>
+              <option value="statute">Law / Statute</option>
+              <option value="journal_article">Academic Article</option>
+              <option value="book">Book or Book Chapter</option>
+              <option value="other">Other Document</option>
             </select>
-
-            {/* Source Type Guidance */}
-            {(() => {
-              const selectedCategory = SOURCE_CATEGORIES.find(cat =>
-                cat.options.some(opt => opt.value === sourceType)
-              )
-              const selectedOption = selectedCategory?.options.find(opt => opt.value === sourceType)
-
-              return selectedCategory && (
-                <div style={{
-                  padding: "12px",
-                  background: "#f8fafc",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "8px",
-                  marginBottom: "16px"
-                }}>
-                  <div style={{ fontSize: "13px", color: "#475569", marginBottom: "4px" }}>
-                    <strong>{selectedCategory.label}</strong> • {selectedOption?.label}
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#64748b", lineHeight: 1.4 }}>
-                    {selectedOption?.description}
-                  </div>
-                </div>
-              )
-            })()}
+            <div style={{ fontSize: "12px", color: "#6b7280" }}>
+              Choose the most appropriate category for your document
+            </div>
           </div>
 
-          {/* Source Guidance Panel */}
-          {showSourceGuidance && (
-            <div style={{
-              marginTop: "16px",
-              padding: "50px",
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              borderRadius: "12px"
-            }}>
-              <h4 style={{ fontSize: "16px", fontWeight: 600, color: "#374151", marginBottom: "16px" }}>
-                Source Type Guide
-              </h4>
-              <div style={{ display: "grid", gap: "16px", gridTemplateColumns: "1fr" }}>
-                {SOURCE_CATEGORIES.map(cat => (
-                  <div key={cat.label} style={{
-                    padding: "16px",
-                    background: "#fff",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "8px"
-                  }}>
-                    <h5 style={{ fontSize: "14px", fontWeight: 600, color: "#111", marginBottom: "4px" }}>
-                      {cat.label}
-                    </h5>
-                    <p style={{ fontSize: "13px", color: "#6b7280", marginBottom: "8px" }}>
-                      {cat.description}
-                    </p>
-                    <p style={{ fontSize: "12px", color: "#374151", fontWeight: 500, marginBottom: "8px", fontStyle: "italic" }}>
-                      {cat.recommendation}
-                    </p>
-                    <div style={{ fontSize: "12px", color: "#64748b" }}>
-                      <strong>Types:</strong> {cat.options.map(opt => opt.label).join(", ")}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Source Title */}
           <div style={{ marginBottom: "24px" }}>
             <label style={{ display: "block", fontSize: "14px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
-              Title <span style={{ color: "#ef4444" }}>*</span> {selectedFiles.length > 1 && "(Base title for multiple files)"}
+              Document Title <span style={{ color: "#ef4444" }}>*</span>
             </label>
             <input
               value={sourceTitle}
@@ -777,7 +853,7 @@ export default function ProjectPage() {
                   setTitleError("")
                 }
               }}
-              placeholder={selectedFiles.length > 1 ? "Base title (e.g., 'Supreme Court Cases')" : "Source title"}
+              placeholder={selectedFiles.length > 1 ? "e.g., 'Recent Supreme Court Cases'" : "e.g., 'Smith v. Jones (2023)'"}
               disabled={uploading}
               style={{
                 width: "100%",
@@ -792,28 +868,14 @@ export default function ProjectPage() {
             {titleError && (
               <div style={{
                 marginTop: "8px",
-                padding: "12px",
+                padding: "8px",
                 background: "#fef2f2",
                 border: "1px solid #fecaca",
                 borderRadius: "6px",
                 fontSize: "13px",
                 color: "#991b1b"
               }}>
-                <div style={{ fontWeight: 600, marginBottom: "4px" }}>⚠️ {titleError}</div>
-                <div style={{ fontSize: "12px", color: "#7f1d1d", marginTop: "4px" }}>
-                  Please enter a title before uploading. For multiple files, enter a base title that will be used for all files.
-                </div>
-              </div>
-            )}
-            {!titleError && selectedFiles.length > 0 && (
-              <div style={{
-                marginTop: "8px",
-                fontSize: "12px",
-                color: "#6b7280"
-              }}>
-                {selectedFiles.length > 1 
-                  ? `Each file will be named: "${sourceTitle.trim() || "[Your Title]"} — [filename]"`
-                  : "This title will be used to identify your source"}
+                ⚠️ Please enter a title for your document
               </div>
             )}
           </div>
@@ -863,15 +925,16 @@ export default function ProjectPage() {
             <div style={{
               display: "flex",
               justifyContent: "center",
-              gap: "24px",
+              gap: "20px",
               fontSize: "12px",
               color: "#6b7280",
-              flexWrap: "wrap"
+              flexWrap: "wrap",
+              textAlign: "center"
             }}>
-              <span>Maximum 4MB per file</span>
-              <span>Up to 50 files</span>
-              <span>PDF format only</span>
-              <span>Large uploads may take several minutes to process</span>
+              <span>📄 PDF files only</span>
+              <span>📏 Up to 200MB each</span>
+              <span>📚 Up to 50 files</span>
+              <span>⏱️ Large files may take time to process</span>
             </div>
           </div>
 
@@ -1145,195 +1208,299 @@ export default function ProjectPage() {
             boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
           }}
         >
-          <div style={{ marginBottom: "24px" }}>
-            <h3 style={{ fontSize: "18px", fontWeight: 600, color: "#111", margin: 0 }}>
-              Sources ({sources.length})
-            </h3>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "24px"
+          }}>
+            <div>
+              <h3 style={{ fontSize: "18px", fontWeight: 600, color: "#111", margin: "0 0 4px 0" }}>
+                📚 Document Library
+              </h3>
+              <p style={{ fontSize: "14px", color: "#6b7280", margin: 0 }}>
+                {sources.length} document{sources.length !== 1 ? 's' : ''} • {sources.filter(s => !s.optimistic).length} ready for research
+              </p>
+            </div>
+            {sources.filter(s => !s.optimistic).length > 0 && (
+              <button
+                onClick={() => router.push(`/projects/${id}/query`)}
+                style={{
+                  padding: "10px 20px",
+                  background: "#10b981",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: "0 2px 4px rgba(16, 185, 129, 0.2)"
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "#059669"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "#10b981"}
+              >
+                Start Research →
+              </button>
+            )}
           </div>
 
           {sources.length === 0 ? (
             <div style={{
               textAlign: "center",
-              padding: "32px 24px",
+              padding: "40px 24px",
               color: "#6b7280"
             }}>
-              <h4 style={{ fontSize: "16px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
-                No sources yet
+              <div style={{ fontSize: "48px", marginBottom: "16px" }}>📄</div>
+              <h4 style={{ fontSize: "18px", fontWeight: 600, color: "#374151", marginBottom: "8px" }}>
+                Ready to upload your first documents?
               </h4>
-              <p style={{ fontSize: "14px", lineHeight: 1.5 }}>
-                Upload legal documents above to begin your research.
-                Start with primary law sources such as cases and statutes.
+              <p style={{ fontSize: "14px", lineHeight: 1.5, maxWidth: "400px", margin: "0 auto" }}>
+                Use the upload section above to add legal documents, court cases, or academic sources.
+                Start with 3-5 key documents to begin your research.
               </p>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {sources.map(s => {
-                // Get source category
-                const getSourceCategory = (type: string) => {
-                  for (const cat of SOURCE_CATEGORIES) {
-                    if (cat.options.some(opt => opt.value === type)) {
-                      return cat
+            <>
+              {/* Source Type Summary */}
+              {(() => {
+                const typeCounts: Record<string, number> = {}
+                for (const s of sources.filter(src => !src.optimistic)) {
+                  typeCounts[s.type] = (typeCounts[s.type] || 0) + 1
+                }
+                const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])
+                
+                if (sortedTypes.length > 0) {
+                  return (
+                    <div style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                      marginBottom: "20px",
+                      padding: "16px",
+                      background: "#f9fafb",
+                      borderRadius: "10px",
+                      border: "1px solid #e5e7eb",
+                    }}>
+                      <span style={{ fontSize: "13px", color: "#6b7280", fontWeight: 500, marginRight: "4px" }}>
+                        Source Types:
+                      </span>
+                      {sortedTypes.map(([type, count]) => {
+                        const getTypeColor = (t: string) => {
+                          switch (t) {
+                            case "case": return { bg: "#dbeafe", color: "#1e40af", icon: "⚖️" }
+                            case "statute": return { bg: "#dcfce7", color: "#166534", icon: "📜" }
+                            case "regulation": return { bg: "#e0e7ff", color: "#3730a3", icon: "📋" }
+                            case "journal_article": return { bg: "#fef3c7", color: "#854d0e", icon: "📰" }
+                            case "book": return { bg: "#fce7f3", color: "#9d174d", icon: "📚" }
+                            case "commentary": return { bg: "#f3e8ff", color: "#7c3aed", icon: "💬" }
+                            case "constitution": return { bg: "#fef2f2", color: "#991b1b", icon: "🏛️" }
+                            case "treaty": return { bg: "#ecfeff", color: "#0e7490", icon: "🌐" }
+                            default: return { bg: "#f3f4f6", color: "#374151", icon: "📄" }
+                          }
+                        }
+                        const typeStyle = getTypeColor(type)
+                        return (
+                          <span
+                            key={type}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "16px",
+                              background: typeStyle.bg,
+                              color: typeStyle.color,
+                              fontSize: "12px",
+                              fontWeight: 500,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            <span>{typeStyle.icon}</span>
+                            <span style={{ textTransform: "capitalize" }}>{type.replace(/_/g, " ")}</span>
+                            <span style={{
+                              background: "rgba(0,0,0,0.1)",
+                              padding: "1px 6px",
+                              borderRadius: "10px",
+                              fontSize: "11px",
+                              fontWeight: 600,
+                            }}>
+                              {count}
+                            </span>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )
+                }
+                return null
+              })()}
+            
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {sources.map(s => {
+                  // Get source type styling
+                  const getTypeStyle = (type: string) => {
+                    switch (type) {
+                      case "case": return { bg: "#dbeafe", color: "#1e40af", icon: "⚖️" }
+                      case "statute": return { bg: "#dcfce7", color: "#166534", icon: "📜" }
+                      case "regulation": return { bg: "#e0e7ff", color: "#3730a3", icon: "📋" }
+                      case "journal_article": return { bg: "#fef3c7", color: "#854d0e", icon: "📰" }
+                      case "book": return { bg: "#fce7f3", color: "#9d174d", icon: "📚" }
+                      case "commentary": return { bg: "#f3e8ff", color: "#7c3aed", icon: "💬" }
+                      case "constitution": return { bg: "#fef2f2", color: "#991b1b", icon: "🏛️" }
+                      case "treaty": return { bg: "#ecfeff", color: "#0e7490", icon: "🌐" }
+                      default: return { bg: "#f3f4f6", color: "#374151", icon: "📄" }
                     }
                   }
-                  return null
-                }
+                  const typeStyle = getTypeStyle(s.type)
 
-                const category = getSourceCategory(s.type)
-
-                return (
-                  <div
-                    key={s.id}
-                    style={{
-                      padding: "50px",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "12px",
-                      background: "#fff",
-                      boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
-                      transition: "all 0.2s",
-                      cursor: s.optimistic || deletingSourceId ? "default" : "pointer",
-                      opacity: s.optimistic ? 0.7 : 1,
-                    }}
-                    onClick={() =>
-                      !s.optimistic && !deletingSourceId && router.push(`/projects/${id}/sources/${s.id}`)
-                    }
-                    onMouseEnter={(e) => {
-                      if (!s.optimistic && deletingSourceId !== s.id) {
-                        e.currentTarget.style.transform = "translateY(-2px)"
-                        e.currentTarget.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.15)"
-                        e.currentTarget.style.borderColor = "#d1d5db"
+                  return (
+                    <div
+                      key={s.id}
+                      style={{
+                        padding: "20px",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "12px",
+                        background: "#fff",
+                        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+                        transition: "all 0.2s",
+                        cursor: s.optimistic || deletingSourceId ? "default" : "pointer",
+                        opacity: s.optimistic ? 0.7 : 1,
+                        borderLeft: `4px solid ${typeStyle.color}`,
+                      }}
+                      onClick={() =>
+                        !s.optimistic && !deletingSourceId && router.push(`/projects/${id}/sources/${s.id}`)
                       }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!s.optimistic && deletingSourceId !== s.id) {
-                        e.currentTarget.style.transform = "translateY(0)"
-                        e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.1)"
-                        e.currentTarget.style.borderColor = "#e5e7eb"
-                      }
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <h4 style={{
-                          fontSize: "16px",
-                          fontWeight: 600,
-                          color: "#111",
-                          margin: "0 0 8px 0",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap"
-                        }}>
-                          {s.title}
-                        </h4>
-
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                          <span style={{
-                            padding: "2px 6px",
-                            background: "#f3f4f6",
-                            color: "#374151",
-                            borderRadius: "4px",
-                            fontSize: "11px",
-                            fontWeight: 500,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em"
-                          }}>
-                            {s.type.replace(/_/g, ' ')}
-                          </span>
-
-                          {s.optimistic && (
-                            <span style={{
-                              padding: "2px 6px",
-                              background: "#f3f4f6",
-                              color: "#6b7280",
-                              borderRadius: "4px",
-                              fontSize: "11px",
-                              fontWeight: 500
+                      onMouseEnter={(e) => {
+                        if (!s.optimistic && deletingSourceId !== s.id) {
+                          e.currentTarget.style.transform = "translateY(-2px)"
+                          e.currentTarget.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.15)"
+                          e.currentTarget.style.borderColor = "#d1d5db"
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!s.optimistic && deletingSourceId !== s.id) {
+                          e.currentTarget.style.transform = "translateY(0)"
+                          e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.1)"
+                          e.currentTarget.style.borderColor = "#e5e7eb"
+                        }
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+                            <span style={{ fontSize: "20px" }}>{typeStyle.icon}</span>
+                            <h4 style={{
+                              fontSize: "16px",
+                              fontWeight: 600,
+                              color: "#111",
+                              margin: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap"
                             }}>
-                              Processing
+                              {s.title}
+                            </h4>
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginLeft: "30px" }}>
+                            <span style={{
+                              padding: "3px 10px",
+                              background: typeStyle.bg,
+                              color: typeStyle.color,
+                              borderRadius: "12px",
+                              fontSize: "11px",
+                              fontWeight: 600,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.5px"
+                            }}>
+                              {s.type.replace(/_/g, ' ')}
                             </span>
-                          )}
 
-                          <span style={{
-                            fontSize: "12px",
-                            color: "#6b7280"
-                          }}>
-                            {new Date(s.created_at).toLocaleDateString()}
-                          </span>
+                            {s.optimistic && (
+                              <span style={{
+                                padding: "3px 10px",
+                                background: "#fef3c7",
+                                color: "#92400e",
+                                borderRadius: "12px",
+                                fontSize: "11px",
+                                fontWeight: 500,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}>
+                                <span style={{ 
+                                  display: "inline-block",
+                                  width: "8px",
+                                  height: "8px",
+                                  background: "#f59e0b",
+                                  borderRadius: "50%",
+                                  animation: "pulse 1.5s infinite",
+                                }}></span>
+                                Processing
+                              </span>
+                            )}
+
+                            <span style={{
+                              fontSize: "12px",
+                              color: "#6b7280"
+                            }}>
+                              {new Date(s.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
                         </div>
+
+                        {!s.optimistic && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteSource(s.id, s.title)
+                            }}
+                            disabled={deletingSourceId === s.id}
+                            style={{
+                              padding: "8px",
+                              background: deletingSourceId === s.id ? "#f3f4f6" : "none",
+                              border: "1px solid #e5e7eb",
+                              borderRadius: "8px",
+                              color: deletingSourceId === s.id ? "#9ca3af" : "#ef4444",
+                              cursor: deletingSourceId === s.id ? "not-allowed" : "pointer",
+                              fontSize: "14px",
+                              transition: "all 0.2s",
+                              opacity: deletingSourceId === s.id ? 0.6 : 1
+                            }}
+                            onMouseEnter={(e) => {
+                              if (deletingSourceId !== s.id) {
+                                e.currentTarget.style.background = "#fef2f2"
+                                e.currentTarget.style.borderColor = "#ef4444"
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (deletingSourceId !== s.id) {
+                                e.currentTarget.style.background = "none"
+                                e.currentTarget.style.borderColor = "#e5e7eb"
+                              }
+                            }}
+                            title="Delete source"
+                          >
+                            🗑️
+                          </button>
+                        )}
                       </div>
-
-                      {!s.optimistic && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteSource(s.id, s.title)
-                          }}
-                          disabled={deletingSourceId === s.id}
-                          style={{
-                            padding: "8px",
-                            background: deletingSourceId === s.id ? "#f3f4f6" : "none",
-                            border: "1px solid #e5e7eb",
-                            borderRadius: "8px",
-                            color: deletingSourceId === s.id ? "#9ca3af" : "#ef4444",
-                            cursor: deletingSourceId === s.id ? "not-allowed" : "pointer",
-                            fontSize: "14px",
-                            transition: "all 0.2s",
-                            opacity: deletingSourceId === s.id ? 0.6 : 1
-                          }}
-                          onMouseEnter={(e) => {
-                            if (deletingSourceId !== s.id) {
-                              e.currentTarget.style.background = "#fef2f2"
-                              e.currentTarget.style.borderColor = "#ef4444"
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (deletingSourceId !== s.id) {
-                              e.currentTarget.style.background = "none"
-                              e.currentTarget.style.borderColor = "#e5e7eb"
-                            }
-                          }}
-                          title="Delete source"
-                        >
-                          {deletingSourceId === s.id ? "🗑️" : "🗑️"}
-                        </button>
-                      )}
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            </>
           )}
 
-          {sources.length > 0 && (
-            <div             style={{
-              marginTop: "24px",
-              padding: "16px",
-              background: "#f9fafb",
-              border: "1px solid #e5e7eb",
-              borderRadius: "6px",
-              textAlign: "center"
-            }}>
-              <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "12px" }}>
-                Ready to analyze your sources? Click the button above to start your research.
-              </p>
-              <button
-                onClick={() => router.push(`/projects/${id}/query`)}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "4px",
-                  background: "#111",
-                  color: "#fff",
-                  fontSize: "14px",
-                  fontWeight: 500,
-                  border: "none",
-                  cursor: "pointer"
-                }}
-              >
-                Continue to Research
-              </button>
-            </div>
-          )}
         </div>
       </div>
+      
+      {/* Animations */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   )
 }

@@ -39,6 +39,26 @@ type PersonalizationOption = {
   description: string
 }
 
+type EvidenceCoverage = {
+  argument_id: string
+  supported_claims: number
+  total_claims: number
+  coverage_percentage: number
+  weak_areas: string[]
+  source_utilization: Array<{
+    source_type: string
+    chunk_count: number
+    relevance: "high" | "medium" | "low"
+  }>
+}
+
+type CombinationOptions = {
+  allowed: boolean
+  max_combine: number
+  compatible_pairs: Array<[string, string]>
+  combination_guidance: string
+}
+
 type SynthesizeResponse = {
   argumentation_lines: ArgumentationLine[]
   recommended_structure: RecommendedStructure
@@ -47,10 +67,13 @@ type SynthesizeResponse = {
     structure_options: PersonalizationOption[]
     focus_options: PersonalizationOption[]
   }
+  combination_options?: CombinationOptions
+  evidence_coverage?: EvidenceCoverage[]
 }
 
 type SelectedApproach = {
   argumentation_line_id: string | null
+  combined_line_ids?: string[] // NEW: Support for combining multiple lines
   tone: string
   structure_type: string
   focus_areas: string[]
@@ -79,11 +102,13 @@ export default function SynthesizePage() {
 
   const [selectedApproach, setSelectedApproach] = useState<SelectedApproach>({
     argumentation_line_id: null,
+    combined_line_ids: [],
     tone: "",
     structure_type: "",
     focus_areas: [],
   })
   const [wordLimit, setWordLimit] = useState<string>("")
+  const [combinationMode, setCombinationMode] = useState(false)
   const [queueStatus, setQueueStatus] = useState<{
     in_queue: boolean
     queue_position: number | null
@@ -470,19 +495,52 @@ export default function SynthesizePage() {
   /* ================= HANDLERS ================= */
 
   const handleGenerate = () => {
-    if (!selectedApproach.argumentation_line_id && !selectedApproach.structure_type) {
+    // Support both single selection and combination mode
+    const hasSingleSelection = selectedApproach.argumentation_line_id
+    const hasCombinedSelection = selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 0
+    
+    if (!hasSingleSelection && !hasCombinedSelection && !selectedApproach.structure_type) {
       alert("Please select an argumentation approach or structure")
       return
     }
 
-    const selectedLine = synthesis?.argumentation_lines.find(
-      (l) => l.id === selectedApproach.argumentation_line_id
-    )
+    let selectedLine = null
+    let combinedLines: ArgumentationLine[] = []
+    
+    if (hasCombinedSelection && synthesis) {
+      // Combine multiple argumentation lines
+      combinedLines = synthesis.argumentation_lines.filter(
+        l => selectedApproach.combined_line_ids?.includes(l.id)
+      )
+      
+      if (combinedLines.length > 0) {
+        // Merge focus areas and create combined structure
+        const mergedFocusAreas = [...new Set(combinedLines.flatMap(l => l.focus_areas))]
+        const mergedSections = combinedLines[0].structure.sections.map((section, idx) => ({
+          ...section,
+          description: combinedLines.map(l => l.structure.sections[idx]?.description || "").join(" / ")
+        }))
+        
+        selectedLine = {
+          ...combinedLines[0],
+          id: `combined-${combinedLines.map(l => l.id).join("-")}`,
+          title: `Combined: ${combinedLines.map(l => l.title).join(" + ")}`,
+          description: combinedLines.map(l => l.description).join(" Additionally, "),
+          focus_areas: mergedFocusAreas,
+          structure: { sections: mergedSections },
+        }
+      }
+    } else if (hasSingleSelection && synthesis) {
+      selectedLine = synthesis.argumentation_lines.find(
+        (l) => l.id === selectedApproach.argumentation_line_id
+      )
+    }
 
     const params = new URLSearchParams({
       query: queryText || "",
       approach: JSON.stringify({
         argumentation_line: selectedLine || null,
+        combined_lines: combinedLines.length > 0 ? combinedLines : undefined,
         tone: selectedApproach.tone,
         structure_type: selectedApproach.structure_type,
         focus_areas: selectedApproach.focus_areas,
@@ -662,54 +720,169 @@ export default function SynthesizePage() {
       {/* ========== ARGUMENTATION LINES ========== */}
 
       <div style={{ marginBottom: "40px" }}>
-        <h2 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "20px" }}>
-          Select Argumentation Approach
-        </h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: 600, margin: 0 }}>
+            Select Argumentation Approach
+          </h2>
+          
+          {/* Combination Mode Toggle */}
+          {synthesis.combination_options?.allowed && (
+            <button
+              onClick={() => {
+                setCombinationMode(!combinationMode)
+                if (!combinationMode) {
+                  // Switching to combination mode - clear single selection
+                  setSelectedApproach(prev => ({
+                    ...prev,
+                    argumentation_line_id: null,
+                    combined_line_ids: [],
+                  }))
+                } else {
+                  // Switching to single mode - clear combinations
+                  setSelectedApproach(prev => ({
+                    ...prev,
+                    combined_line_ids: [],
+                  }))
+                }
+              }}
+              style={{
+                padding: "8px 16px",
+                borderRadius: "8px",
+                border: combinationMode ? "2px solid #2563eb" : "1px solid #d1d5db",
+                background: combinationMode ? "#eff6ff" : "#fff",
+                color: combinationMode ? "#2563eb" : "#374151",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                transition: "all 0.2s",
+              }}
+            >
+              {combinationMode ? "✓ Combination Mode" : "🔗 Combine Approaches"}
+            </button>
+          )}
+        </div>
+
+        {combinationMode && synthesis.combination_options && (
+          <div style={{
+            padding: "16px",
+            background: "#f0f9ff",
+            border: "1px solid #bae6fd",
+            borderRadius: "8px",
+            marginBottom: "20px",
+            fontSize: "13px",
+            color: "#0c4a6e",
+          }}>
+            <strong>💡 Combination Mode:</strong> {synthesis.combination_options.combination_guidance}
+            <br />
+            <span style={{ fontSize: "12px", color: "#0369a1" }}>
+              Select up to {synthesis.combination_options.max_combine} approaches to combine.
+              {selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 0 && (
+                <span style={{ marginLeft: "8px", fontWeight: 600 }}>
+                  ({selectedApproach.combined_line_ids.length} selected)
+                </span>
+              )}
+            </span>
+          </div>
+        )}
 
         <div style={{ display: "grid", gap: "16px" }}>
           {synthesis.argumentation_lines.map((line) => {
-            const isSelected = selectedApproach.argumentation_line_id === line.id
+            const isSelected = combinationMode
+              ? selectedApproach.combined_line_ids?.includes(line.id)
+              : selectedApproach.argumentation_line_id === line.id
+            
+            // Get evidence coverage for this line
+            const coverage = synthesis.evidence_coverage?.find(c => c.argument_id === line.id)
+            
+            // Check compatibility in combination mode
+            const isCompatibleWithSelected = combinationMode && synthesis.combination_options?.compatible_pairs.some(
+              ([a, b]) => 
+                (selectedApproach.combined_line_ids?.includes(a) && b === line.id) ||
+                (selectedApproach.combined_line_ids?.includes(b) && a === line.id) ||
+                (selectedApproach.combined_line_ids?.length === 0)
+            )
+            
+            const canSelect = !combinationMode || 
+              isSelected || 
+              (selectedApproach.combined_line_ids?.length || 0) < (synthesis.combination_options?.max_combine || 2) && isCompatibleWithSelected
 
             return (
               <div
                 key={line.id}
                 onClick={() => {
-                  setSelectedApproach({
-                    ...selectedApproach,
-                    argumentation_line_id: line.id,
-                    tone: line.tone,
-                    structure_type: synthesis.recommended_structure.type,
-                    focus_areas: line.focus_areas,
-                  })
+                  if (!canSelect && !isSelected) return
+                  
+                  if (combinationMode) {
+                    // Toggle selection in combination mode
+                    const currentIds = selectedApproach.combined_line_ids || []
+                    if (currentIds.includes(line.id)) {
+                      setSelectedApproach({
+                        ...selectedApproach,
+                        combined_line_ids: currentIds.filter(id => id !== line.id),
+                      })
+                    } else if (currentIds.length < (synthesis.combination_options?.max_combine || 2)) {
+                      setSelectedApproach({
+                        ...selectedApproach,
+                        combined_line_ids: [...currentIds, line.id],
+                        tone: line.tone,
+                        structure_type: synthesis.recommended_structure.type,
+                      })
+                    }
+                  } else {
+                    setSelectedApproach({
+                      ...selectedApproach,
+                      argumentation_line_id: line.id,
+                      combined_line_ids: [],
+                      tone: line.tone,
+                      structure_type: synthesis.recommended_structure.type,
+                      focus_areas: line.focus_areas,
+                    })
+                  }
                 }}
                 style={{
                   border: `2px solid ${isSelected ? "#2563eb" : "#e5e7eb"}`,
                   borderRadius: "12px",
                   padding: "20px",
-                  cursor: "pointer",
-                  background: isSelected ? "#eff6ff" : "#fff",
+                  cursor: canSelect || isSelected ? "pointer" : "not-allowed",
+                  background: isSelected ? "#eff6ff" : !canSelect && combinationMode ? "#f9fafb" : "#fff",
+                  opacity: !canSelect && combinationMode && !isSelected ? 0.5 : 1,
                   transition: "all 0.2s",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "start", gap: "12px" }}>
                   <input
-                    type="radio"
+                    type={combinationMode ? "checkbox" : "radio"}
                     checked={isSelected}
-                    onChange={() => {
-                      setSelectedApproach({
-                        ...selectedApproach,
-                        argumentation_line_id: line.id,
-                        tone: line.tone,
-                        structure_type: synthesis.recommended_structure.type,
-                        focus_areas: line.focus_areas,
-                      })
-                    }}
+                    disabled={!canSelect && !isSelected}
+                    onChange={() => {}}
                     style={{ marginTop: "4px" }}
                   />
                   <div style={{ flex: 1 }}>
-                    <h3 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>
-                      {line.title}
-                    </h3>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+                      <h3 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>
+                        {line.title}
+                      </h3>
+                      
+                      {/* Evidence Coverage Badge */}
+                      {coverage && (
+                        <span style={{
+                          padding: "4px 10px",
+                          borderRadius: "12px",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          background: coverage.coverage_percentage >= 80 ? "#dcfce7" : 
+                                     coverage.coverage_percentage >= 60 ? "#fef9c3" : "#fee2e2",
+                          color: coverage.coverage_percentage >= 80 ? "#166534" : 
+                                coverage.coverage_percentage >= 60 ? "#854d0e" : "#991b1b",
+                        }}>
+                          {coverage.coverage_percentage}% supported
+                        </span>
+                      )}
+                    </div>
+                    
                     <p style={{ fontSize: "14px", color: "#374151", marginBottom: "12px" }}>
                       {line.description}
                     </p>
@@ -717,6 +890,53 @@ export default function SynthesizePage() {
                     <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "12px" }}>
                       <strong>Approach:</strong> {line.approach} · <strong>Tone:</strong> {line.tone}
                     </div>
+
+                    {/* Weak Areas Warning */}
+                    {coverage && coverage.weak_areas.length > 0 && (
+                      <div style={{
+                        padding: "10px 12px",
+                        background: "#fef3c7",
+                        border: "1px solid #fde68a",
+                        borderRadius: "6px",
+                        marginBottom: "12px",
+                        fontSize: "12px",
+                        color: "#92400e",
+                      }}>
+                        <strong>⚠️ Areas needing more evidence:</strong>
+                        <ul style={{ margin: "4px 0 0 0", paddingLeft: "16px" }}>
+                          {coverage.weak_areas.slice(0, 3).map((area, idx) => (
+                            <li key={idx}>{area}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Source Utilization */}
+                    {coverage && coverage.source_utilization && coverage.source_utilization.length > 0 && (
+                      <div style={{ marginBottom: "12px" }}>
+                        <div style={{ fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>
+                          Source Coverage:
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {coverage.source_utilization.slice(0, 5).map((source, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                background: source.relevance === "high" ? "#dcfce7" : 
+                                           source.relevance === "medium" ? "#fef9c3" : "#f3f4f6",
+                                fontSize: "11px",
+                                color: source.relevance === "high" ? "#166534" : 
+                                      source.relevance === "medium" ? "#854d0e" : "#6b7280",
+                              }}
+                            >
+                              {source.source_type}: {source.chunk_count}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {line.focus_areas.length > 0 && (
                       <div style={{ marginBottom: "12px" }}>
@@ -803,7 +1023,7 @@ export default function SynthesizePage() {
 
       {/* ========== PERSONALIZATION OPTIONS ========== */}
 
-      {selectedApproach.argumentation_line_id && (
+      {(selectedApproach.argumentation_line_id || (selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 0)) && (
         <div style={{ marginBottom: "40px" }}>
           <h2 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "20px" }}>
             Personalization Options
@@ -909,6 +1129,57 @@ export default function SynthesizePage() {
         </div>
       )}
 
+      {/* ========== SELECTION SUMMARY ========== */}
+      
+      {(selectedApproach.argumentation_line_id || (selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 0)) && (
+        <div style={{
+          padding: "20px",
+          background: "#f0f9ff",
+          border: "1px solid #bae6fd",
+          borderRadius: "12px",
+          marginBottom: "24px",
+        }}>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "#0c4a6e", marginBottom: "8px" }}>
+            Selected Approach{selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 1 ? "es" : ""}:
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+            {combinationMode && selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 0 ? (
+              selectedApproach.combined_line_ids.map(id => {
+                const line = synthesis.argumentation_lines.find(l => l.id === id)
+                return line ? (
+                  <span key={id} style={{
+                    padding: "6px 12px",
+                    background: "#dbeafe",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    color: "#1e40af",
+                    fontWeight: 500,
+                  }}>
+                    {line.title}
+                  </span>
+                ) : null
+              })
+            ) : (
+              <span style={{
+                padding: "6px 12px",
+                background: "#dbeafe",
+                borderRadius: "6px",
+                fontSize: "13px",
+                color: "#1e40af",
+                fontWeight: 500,
+              }}>
+                {synthesis.argumentation_lines.find(l => l.id === selectedApproach.argumentation_line_id)?.title}
+              </span>
+            )}
+          </div>
+          {combinationMode && selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 1 && (
+            <div style={{ marginTop: "12px", fontSize: "12px", color: "#0369a1" }}>
+              These approaches will be merged to create a comprehensive argument structure.
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ========== ACTIONS ========== */}
 
       <div style={{ display: "flex", gap: "12px", marginTop: "40px" }}>
@@ -930,19 +1201,21 @@ export default function SynthesizePage() {
 
         <button
           onClick={handleGenerate}
-          disabled={!selectedApproach.argumentation_line_id && !selectedApproach.structure_type}
+          disabled={!selectedApproach.argumentation_line_id && !selectedApproach.structure_type && !(selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 0)}
           style={{
             padding: "10px 18px",
             borderRadius: "8px",
-            background: selectedApproach.argumentation_line_id || selectedApproach.structure_type ? "#111" : "#9ca3af",
+            background: selectedApproach.argumentation_line_id || selectedApproach.structure_type || (selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 0) ? "#111" : "#9ca3af",
             color: "#fff",
             fontSize: "14px",
             fontWeight: 500,
             border: "none",
-            cursor: selectedApproach.argumentation_line_id || selectedApproach.structure_type ? "pointer" : "not-allowed",
+            cursor: selectedApproach.argumentation_line_id || selectedApproach.structure_type || (selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 0) ? "pointer" : "not-allowed",
           }}
         >
-          Generate Project
+          {selectedApproach.combined_line_ids && selectedApproach.combined_line_ids.length > 1 
+            ? `Generate with ${selectedApproach.combined_line_ids.length} Combined Approaches`
+            : "Generate Project"}
         </button>
       </div>
     </div>

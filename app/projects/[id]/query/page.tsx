@@ -15,11 +15,27 @@ type RetrievedChunk = {
   paragraph_index: number | null
   chunk_index: number | null
   similarity: number | null
+  source_type?: string | null
+  metadata?: {
+    section_header?: string
+    case_citations?: string[]
+    statute_references?: string[]
+    detected_patterns?: string[]
+  } | null
 }
 
 type SourceMeta = {
   id: string
   title: string
+  type: string
+}
+
+type RetrievalStats = {
+  total_chunks: number
+  sources_count: number
+  source_distribution: Record<string, number>
+  avg_similarity: number
+  diversity_score: number
 }
 
 /* ================= HELPERS ================= */
@@ -48,8 +64,10 @@ export default function QueryPage() {
   const [loading, setLoading] = useState(false)
   const [retrievedChunks, setRetrievedChunks] = useState<RetrievedChunk[]>([])
   const [sourceTitles, setSourceTitles] = useState<Record<string, string>>({})
+  const [sourceTypes, setSourceTypes] = useState<Record<string, string>>({})
   const [loadedFromCache, setLoadedFromCache] = useState(false)
   const [chunksLoadedFromCache, setChunksLoadedFromCache] = useState(false)
+  const [retrievalStats, setRetrievalStats] = useState<RetrievalStats | null>(null)
 
   /* ---------- load cached query on mount ---------- */
 
@@ -71,7 +89,7 @@ export default function QueryPage() {
     }
   }, [query, queryCacheKey])
 
-  /* ---------- load source titles once ---------- */
+  /* ---------- load source titles and types once ---------- */
 
   useEffect(() => {
     if (!projectId) return
@@ -79,16 +97,19 @@ export default function QueryPage() {
     const loadSources = async () => {
       const { data } = await supabase
         .from("project_sources")
-        .select("id, title")
+        .select("id, title, type")
         .eq("project_id", projectId)
 
       if (!data) return
 
-      const map: Record<string, string> = {}
+      const titleMap: Record<string, string> = {}
+      const typeMap: Record<string, string> = {}
       for (const s of data as SourceMeta[]) {
-        map[s.id] = s.title
+        titleMap[s.id] = s.title
+        typeMap[s.id] = s.type
       }
-      setSourceTitles(map)
+      setSourceTitles(titleMap)
+      setSourceTypes(typeMap)
     }
 
     loadSources()
@@ -161,11 +182,46 @@ export default function QueryPage() {
         paragraph_index: c.paragraph_index ?? null,
         chunk_index: c.chunk_index ?? null,
         similarity: typeof c.similarity === "number" ? c.similarity : null,
+        source_type: c.source_type ?? null,
+        metadata: c.metadata ?? null,
       })
     )
 
     setRetrievedChunks(normalised)
     setChunksLoadedFromCache(false) // Reset cache indicator for fresh results
+
+    // Compute retrieval statistics
+    const sourceDistribution: Record<string, number> = {}
+    let totalSimilarity = 0
+    const uniqueSources = new Set<string>()
+    
+    for (const chunk of normalised) {
+      if (chunk.source_id) {
+        uniqueSources.add(chunk.source_id)
+        const sourceType = sourceTypes[chunk.source_id] || chunk.source_type || "unknown"
+        sourceDistribution[sourceType] = (sourceDistribution[sourceType] || 0) + 1
+      }
+      if (chunk.similarity !== null) {
+        totalSimilarity += chunk.similarity
+      }
+    }
+    
+    // Calculate diversity score (1 = all from one source, higher = more diverse)
+    const sourceCounts = Array.from(uniqueSources).map(sourceId => 
+      normalised.filter(c => c.source_id === sourceId).length
+    )
+    const maxFromSingleSource = Math.max(...sourceCounts, 1)
+    const diversityScore = normalised.length > 0 
+      ? (1 - (maxFromSingleSource / normalised.length)) * 100 
+      : 0
+    
+    setRetrievalStats({
+      total_chunks: normalised.length,
+      sources_count: uniqueSources.size,
+      source_distribution: sourceDistribution,
+      avg_similarity: normalised.length > 0 ? totalSimilarity / normalised.length : 0,
+      diversity_score: diversityScore,
+    })
 
     // Store chunks in sessionStorage for synthesize page
     if (typeof window !== "undefined" && projectId) {
@@ -414,7 +470,7 @@ export default function QueryPage() {
               marginBottom: "24px",
               boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
             }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px", marginBottom: retrievalStats ? "20px" : "0" }}>
                 <div>
                   <h2 style={{ fontSize: "20px", fontWeight: 600, color: "#111", margin: 0 }}>
                     Retrieved Evidence
@@ -452,124 +508,315 @@ export default function QueryPage() {
                   Continue to Analysis →
                 </Link>
               </div>
+              
+              {/* Retrieval Statistics */}
+              {retrievalStats && (
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                  gap: "16px",
+                  padding: "16px",
+                  background: "#f9fafb",
+                  borderRadius: "12px",
+                  border: "1px solid #e5e7eb",
+                }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>
+                      {retrievalStats.total_chunks}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>
+                      Total Chunks
+                    </div>
+                  </div>
+                  
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>
+                      {retrievalStats.sources_count}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>
+                      Sources Used
+                    </div>
+                  </div>
+                  
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ 
+                      fontSize: "24px", 
+                      fontWeight: 700, 
+                      color: retrievalStats.diversity_score >= 60 ? "#059669" : 
+                             retrievalStats.diversity_score >= 30 ? "#d97706" : "#dc2626" 
+                    }}>
+                      {retrievalStats.diversity_score.toFixed(0)}%
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>
+                      Diversity Score
+                    </div>
+                  </div>
+                  
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>
+                      {(retrievalStats.avg_similarity * 100).toFixed(0)}%
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>
+                      Avg Relevance
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Source Type Distribution */}
+              {retrievalStats && Object.keys(retrievalStats.source_distribution).length > 0 && (
+                <div style={{ marginTop: "16px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#374151", marginBottom: "10px" }}>
+                    Source Type Distribution
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                    {Object.entries(retrievalStats.source_distribution)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([type, count]) => (
+                        <span
+                          key={type}
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: "20px",
+                            background: type === "case" ? "#dbeafe" :
+                                       type === "statute" ? "#dcfce7" :
+                                       type === "journal_article" ? "#fef3c7" :
+                                       type === "regulation" ? "#e0e7ff" :
+                                       "#f3f4f6",
+                            color: type === "case" ? "#1e40af" :
+                                  type === "statute" ? "#166534" :
+                                  type === "journal_article" ? "#854d0e" :
+                                  type === "regulation" ? "#3730a3" :
+                                  "#374151",
+                            fontSize: "12px",
+                            fontWeight: 500,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          <span style={{ textTransform: "capitalize" }}>
+                            {type.replace(/_/g, " ")}
+                          </span>
+                          <span style={{
+                            background: "rgba(0,0,0,0.1)",
+                            padding: "2px 6px",
+                            borderRadius: "10px",
+                            fontSize: "11px",
+                            fontWeight: 600,
+                          }}>
+                            {count}
+                          </span>
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* SOURCE GROUPS */}
-            {grouped.map(([sourceId, chunks]) => (
-              <div
-                key={sourceId}
-                style={{
-                  background: "#ffffff",
-                  borderRadius: "16px",
-                  border: "1px solid #e5e7eb",
-                  overflow: "hidden",
-                  marginBottom: "24px",
-                  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
-                }}
-              >
+            {grouped.map(([sourceId, chunks]) => {
+              const sourceType = sourceTypes[sourceId] || chunks[0]?.source_type || "unknown"
+              
+              return (
                 <div
+                  key={sourceId}
                   style={{
-                    background: "#f9fafb",
-                    padding: "20px 24px",
-                    borderBottom: "1px solid #e5e7eb",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
+                    background: "#ffffff",
+                    borderRadius: "16px",
+                    border: "1px solid #e5e7eb",
+                    overflow: "hidden",
+                    marginBottom: "24px",
+                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)"
                   }}
                 >
-                  <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#111", margin: 0 }}>
-                    {sourceTitles[sourceId] ?? sourceId}
-                  </h3>
-                  <span style={{
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    color: "#6b7280",
-                    padding: "4px 8px",
-                    background: "#ffffff",
-                    borderRadius: "4px",
-                    border: "1px solid #e5e7eb"
-                  }}>
-                    {chunks.length} chunk{chunks.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
-
-                <div>
-                  {chunks.map((chunk, index) => (
-                    <div
-                      key={chunk.id}
-                      style={{
-                        padding: "24px",
-                        borderBottom:
-                          index < chunks.length - 1
-                            ? "1px solid #f3f4f6"
-                            : "none",
-                        transition: "background 0.2s",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "#f9fafb"
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "#ffffff"
-                      }}
-                    >
-                      <div style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "12px",
-                        marginBottom: "16px",
-                        flexWrap: "wrap"
+                  <div
+                    style={{
+                      background: "#f9fafb",
+                      padding: "20px 24px",
+                      borderBottom: "1px solid #e5e7eb",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "12px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                      <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#111", margin: 0 }}>
+                        {sourceTitles[sourceId] ?? sourceId}
+                      </h3>
+                      <span style={{
+                        padding: "3px 10px",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
+                        background: sourceType === "case" ? "#dbeafe" :
+                                   sourceType === "statute" ? "#dcfce7" :
+                                   sourceType === "journal_article" ? "#fef3c7" :
+                                   sourceType === "regulation" ? "#e0e7ff" :
+                                   sourceType === "book" ? "#fce7f3" :
+                                   "#f3f4f6",
+                        color: sourceType === "case" ? "#1e40af" :
+                              sourceType === "statute" ? "#166534" :
+                              sourceType === "journal_article" ? "#854d0e" :
+                              sourceType === "regulation" ? "#3730a3" :
+                              sourceType === "book" ? "#9d174d" :
+                              "#374151",
                       }}>
-                        <span style={{
-                          fontSize: "12px",
-                          fontWeight: 600,
-                          color: "#111",
-                          padding: "2px 8px",
-                          background: "#f3f4f6",
-                          borderRadius: "4px",
-                          border: "1px solid #e5e7eb"
-                        }}>
-                          #{index + 1}
-                        </span>
-
-                        {typeof chunk.similarity === "number" && (
-                          <span style={{
-                            fontSize: "12px",
-                            color: "#6b7280",
-                            padding: "2px 8px",
-                            background: "#f9fafb",
-                            borderRadius: "4px",
-                            border: "1px solid #e5e7eb"
-                          }}>
-                            Relevance: {chunk.similarity.toFixed(3)}
-                          </span>
-                        )}
-
-                        {chunk.page_number !== null && (
-                          <span style={{
-                            fontSize: "12px",
-                            color: "#6b7280",
-                            padding: "2px 8px",
-                            background: "#f9fafb",
-                            borderRadius: "4px",
-                            border: "1px solid #e5e7eb"
-                          }}>
-                            Page {chunk.page_number}
-                          </span>
-                        )}
-                      </div>
-
-                      <div style={{
-                        fontSize: "15px",
-                        lineHeight: 1.6,
-                        color: "#374151"
-                      }}>
-                        {chunk.text}
-                      </div>
+                        {sourceType.replace(/_/g, " ")}
+                      </span>
                     </div>
-                  ))}
+                    <span style={{
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      color: "#6b7280",
+                      padding: "4px 8px",
+                      background: "#ffffff",
+                      borderRadius: "4px",
+                      border: "1px solid #e5e7eb"
+                    }}>
+                      {chunks.length} chunk{chunks.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  <div>
+                    {chunks.map((chunk, index) => (
+                      <div
+                        key={chunk.id}
+                        style={{
+                          padding: "24px",
+                          borderBottom:
+                            index < chunks.length - 1
+                              ? "1px solid #f3f4f6"
+                              : "none",
+                          transition: "background 0.2s",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "#f9fafb"
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "#ffffff"
+                        }}
+                      >
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          marginBottom: "16px",
+                          flexWrap: "wrap"
+                        }}>
+                          <span style={{
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: "#111",
+                            padding: "2px 8px",
+                            background: "#f3f4f6",
+                            borderRadius: "4px",
+                            border: "1px solid #e5e7eb"
+                          }}>
+                            #{index + 1}
+                          </span>
+
+                          {typeof chunk.similarity === "number" && (
+                            <span style={{
+                              fontSize: "12px",
+                              color: chunk.similarity >= 0.7 ? "#059669" :
+                                    chunk.similarity >= 0.5 ? "#d97706" : "#6b7280",
+                              fontWeight: chunk.similarity >= 0.7 ? 600 : 400,
+                              padding: "2px 8px",
+                              background: chunk.similarity >= 0.7 ? "#ecfdf5" :
+                                         chunk.similarity >= 0.5 ? "#fef9c3" : "#f9fafb",
+                              borderRadius: "4px",
+                              border: "1px solid #e5e7eb"
+                            }}>
+                              {(chunk.similarity * 100).toFixed(0)}% match
+                            </span>
+                          )}
+
+                          {chunk.page_number !== null && (
+                            <span style={{
+                              fontSize: "12px",
+                              color: "#6b7280",
+                              padding: "2px 8px",
+                              background: "#f9fafb",
+                              borderRadius: "4px",
+                              border: "1px solid #e5e7eb"
+                            }}>
+                              Page {chunk.page_number}
+                            </span>
+                          )}
+                          
+                          {/* Show section header from metadata if available */}
+                          {chunk.metadata?.section_header && (
+                            <span style={{
+                              fontSize: "11px",
+                              color: "#6b7280",
+                              padding: "2px 8px",
+                              background: "#f0f9ff",
+                              borderRadius: "4px",
+                              border: "1px solid #bae6fd",
+                              fontStyle: "italic",
+                              maxWidth: "200px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>
+                              § {chunk.metadata.section_header}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Case citations or statute references */}
+                        {(chunk.metadata?.case_citations?.length || chunk.metadata?.statute_references?.length) && (
+                          <div style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "6px",
+                            marginBottom: "12px",
+                          }}>
+                            {chunk.metadata?.case_citations?.slice(0, 3).map((cite, i) => (
+                              <span key={`case-${i}`} style={{
+                                fontSize: "10px",
+                                padding: "2px 6px",
+                                background: "#fef2f2",
+                                color: "#991b1b",
+                                borderRadius: "3px",
+                                fontFamily: "monospace",
+                              }}>
+                                📖 {cite}
+                              </span>
+                            ))}
+                            {chunk.metadata?.statute_references?.slice(0, 3).map((ref, i) => (
+                              <span key={`stat-${i}`} style={{
+                                fontSize: "10px",
+                                padding: "2px 6px",
+                                background: "#f0fdf4",
+                                color: "#166534",
+                                borderRadius: "3px",
+                                fontFamily: "monospace",
+                              }}>
+                                ⚖️ {ref}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{
+                          fontSize: "15px",
+                          lineHeight: 1.6,
+                          color: "#374151"
+                        }}>
+                          {chunk.text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             {/* CONTINUE SECTION */}
             <div style={{

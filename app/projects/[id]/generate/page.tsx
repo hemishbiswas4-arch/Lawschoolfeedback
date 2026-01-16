@@ -677,51 +677,167 @@ export default function GenerateProjectPage() {
             <div style={{
               display: "inline-block",
               padding: "6px 10px",
-              background: "#f0f9ff",
-              border: "1px solid #bae6fd",
+              background: selectedApproach.combined_lines?.length > 0 ? "#f0fdf4" : "#f0f9ff",
+              border: `1px solid ${selectedApproach.combined_lines?.length > 0 ? "#bbf7d0" : "#bae6fd"}`,
               borderRadius: "4px",
               marginRight: "12px",
               fontSize: "12px",
             }}>
-              <strong>{selectedApproach.argumentation_line.title}</strong>
-              {selectedApproach.tone && (
-                <span style={{ marginLeft: "8px", color: "#6b7280" }}>
-                  · {selectedApproach.tone}
-                </span>
-              )}
-              {selectedApproach.structure_type && (
-                <span style={{ marginLeft: "8px", color: "#6b7280" }}>
-                  · {selectedApproach.structure_type}
-                </span>
+              {selectedApproach.combined_lines?.length > 0 ? (
+                <>
+                  <span style={{ 
+                    display: "inline-flex", 
+                    alignItems: "center", 
+                    gap: "4px",
+                    color: "#166534",
+                    fontWeight: 600,
+                  }}>
+                    🔗 Combined Approach
+                  </span>
+                  <span style={{ marginLeft: "8px", color: "#374151" }}>
+                    {selectedApproach.combined_lines.length} strategies merged
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong>{selectedApproach.argumentation_line.title}</strong>
+                  {selectedApproach.tone && (
+                    <span style={{ marginLeft: "8px", color: "#6b7280" }}>
+                      · {selectedApproach.tone}
+                    </span>
+                  )}
+                  {selectedApproach.structure_type && (
+                    <span style={{ marginLeft: "8px", color: "#6b7280" }}>
+                      · {selectedApproach.structure_type}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           )}
 
           {citationQualityScore !== null && (
             <div style={{
-              display: "inline-block",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "12px",
               padding: "6px 10px",
               background: citationQualityScore >= 80 ? "#f0fdf4" : citationQualityScore >= 60 ? "#fefce8" : "#fef2f2",
               border: `1px solid ${citationQualityScore >= 80 ? "#bbf7d0" : citationQualityScore >= 60 ? "#fde047" : "#fecaca"}`,
               borderRadius: "4px",
               fontSize: "12px",
             }}>
-              <strong>Citation Score:</strong>{" "}
-              <span style={{
-                fontWeight: "bold",
-                color: citationQualityScore >= 80 ? "#16a34a" : citationQualityScore >= 60 ? "#ca8a04" : "#dc2626"
-              }}>
-                {citationQualityScore}/100
+              <span>
+                <strong>Citation Score:</strong>{" "}
+                <span style={{
+                  fontWeight: "bold",
+                  color: citationQualityScore >= 80 ? "#16a34a" : citationQualityScore >= 60 ? "#ca8a04" : "#dc2626"
+                }}>
+                  {citationQualityScore}/100
+                </span>
               </span>
               {coverageAnalysis && (
-                <span style={{ marginLeft: "8px", color: "#6b7280" }}>
-                  • {coverageAnalysis.primary_law_coverage || "N/A"} coverage
-                </span>
+                <>
+                  {coverageAnalysis.primary_law_coverage && (
+                    <span style={{ color: "#6b7280", borderLeft: "1px solid #d1d5db", paddingLeft: "12px" }}>
+                      Primary Law: <strong style={{ color: "#374151" }}>{coverageAnalysis.primary_law_coverage}</strong>
+                    </span>
+                  )}
+                  {coverageAnalysis.secondary_coverage && (
+                    <span style={{ color: "#6b7280", borderLeft: "1px solid #d1d5db", paddingLeft: "12px" }}>
+                      Secondary: <strong style={{ color: "#374151" }}>{coverageAnalysis.secondary_coverage}</strong>
+                    </span>
+                  )}
+                  {coverageAnalysis.source_diversity && (
+                    <span style={{ 
+                      color: coverageAnalysis.source_diversity >= 70 ? "#059669" : 
+                            coverageAnalysis.source_diversity >= 40 ? "#d97706" : "#dc2626",
+                      borderLeft: "1px solid #d1d5db", 
+                      paddingLeft: "12px",
+                      fontWeight: 500,
+                    }}>
+                      Diversity: {coverageAnalysis.source_diversity}%
+                    </span>
+                  )}
+                </>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {/* ========== COMBINED APPROACH PANEL ========== */}
+      {selectedApproach?.combined_lines && selectedApproach.combined_lines.length > 1 && (
+        <div style={{
+          maxWidth: "1400px",
+          margin: "0 auto",
+          padding: "0 20px",
+        }}>
+          <div style={{
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: "12px",
+            padding: "20px",
+            marginBottom: "20px",
+          }}>
+            <div style={{ 
+              display: "flex", 
+              alignItems: "center", 
+              gap: "8px", 
+              marginBottom: "12px",
+              fontSize: "14px",
+              fontWeight: 600,
+              color: "#166534",
+            }}>
+              🔗 Combined Argumentation Approach
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
+              {selectedApproach.combined_lines.map((line: any, idx: number) => (
+                <span key={idx} style={{
+                  padding: "6px 12px",
+                  background: "#dcfce7",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  color: "#14532d",
+                  fontWeight: 500,
+                }}>
+                  {line.title}
+                </span>
+              ))}
+            </div>
+            {selectedApproach.argumentation_line?.description && (
+              <p style={{ 
+                fontSize: "13px", 
+                color: "#15803d", 
+                margin: 0,
+                lineHeight: 1.5,
+              }}>
+                {selectedApproach.argumentation_line.description}
+              </p>
+            )}
+            {selectedApproach.focus_areas && selectedApproach.focus_areas.length > 0 && (
+              <div style={{ marginTop: "12px" }}>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "#166534", marginBottom: "6px" }}>
+                  Combined Focus Areas:
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {selectedApproach.focus_areas.map((area: string, idx: number) => (
+                    <span key={idx} style={{
+                      padding: "3px 8px",
+                      background: "#d1fae5",
+                      borderRadius: "4px",
+                      fontSize: "11px",
+                      color: "#065f46",
+                    }}>
+                      {area}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ========== MAIN CONTENT GRID ========== */}
       <div
