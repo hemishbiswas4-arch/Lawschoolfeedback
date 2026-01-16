@@ -124,8 +124,8 @@ async function embedBatchWithRetry(texts: string[], maxRetries = 3): Promise<num
 
 async function embedChunksParallel(
   chunks: Array<{ text: string; index: number }>,
-  concurrency = 10,
-  batchSize = 50 // Cohere supports up to 96, increased for better throughput
+  concurrency = 15, // Increased for better throughput with smaller chunks
+  batchSize = 96 // Cohere maximum batch size for optimal performance
 ): Promise<Map<number, number[]>> {
   const results = new Map<number, number[]>()
   const errors = new Map<number, Error>()
@@ -220,79 +220,79 @@ type ChunkConfig = {
 }
 
 const CHUNK_CONFIGS: Record<string, ChunkConfig> = {
-  // Case law: preserve IRAC structure, larger chunks for reasoning
+  // Case law: preserve IRAC structure, optimized chunks for faster processing
   case: {
-    MAX_CHARS: 1800,
-    MIN_CHARS: 400,
-    OVERLAP_CHARS: 300,
-    MAX_CHUNK_CHARS: 2200,
+    MAX_CHARS: 1400, // Reduced from 1800
+    MIN_CHARS: 300,  // Reduced from 400
+    OVERLAP_CHARS: 200, // Reduced from 300
+    MAX_CHUNK_CHARS: 1700, // Reduced from 2200
     preserveIRAC: true,
     preserveStatuteSections: false,
   },
   // Statutes: chunk by section/subsection, smaller more precise chunks
   statute: {
-    MAX_CHARS: 1200,
-    MIN_CHARS: 200,
-    OVERLAP_CHARS: 150,
-    MAX_CHUNK_CHARS: 1500,
+    MAX_CHARS: 900,  // Reduced from 1200
+    MIN_CHARS: 150,  // Reduced from 200
+    OVERLAP_CHARS: 100, // Reduced from 150
+    MAX_CHUNK_CHARS: 1200, // Reduced from 1500
     preserveIRAC: false,
     preserveStatuteSections: true,
   },
   regulation: {
-    MAX_CHARS: 1200,
-    MIN_CHARS: 200,
-    OVERLAP_CHARS: 150,
-    MAX_CHUNK_CHARS: 1500,
+    MAX_CHARS: 900,  // Reduced from 1200
+    MIN_CHARS: 150,  // Reduced from 200
+    OVERLAP_CHARS: 100, // Reduced from 150
+    MAX_CHUNK_CHARS: 1200, // Reduced from 1500
     preserveIRAC: false,
     preserveStatuteSections: true,
   },
   constitution: {
-    MAX_CHARS: 1200,
-    MIN_CHARS: 200,
-    OVERLAP_CHARS: 150,
-    MAX_CHUNK_CHARS: 1500,
+    MAX_CHARS: 900,  // Reduced from 1200
+    MIN_CHARS: 150,  // Reduced from 200
+    OVERLAP_CHARS: 100, // Reduced from 150
+    MAX_CHUNK_CHARS: 1200, // Reduced from 1500
     preserveIRAC: false,
     preserveStatuteSections: true,
   },
   treaty: {
-    MAX_CHARS: 1400,
-    MIN_CHARS: 300,
-    OVERLAP_CHARS: 200,
-    MAX_CHUNK_CHARS: 1800,
+    MAX_CHARS: 1100, // Reduced from 1400
+    MIN_CHARS: 250,  // Reduced from 300
+    OVERLAP_CHARS: 150, // Reduced from 200
+    MAX_CHUNK_CHARS: 1400, // Reduced from 1800
     preserveIRAC: false,
     preserveStatuteSections: true,
   },
-  // Academic papers: larger chunks for argument flow
+  // Academic papers: optimized chunks for faster processing
   journal_article: {
-    MAX_CHARS: 1600,
-    MIN_CHARS: 350,
-    OVERLAP_CHARS: 250,
-    MAX_CHUNK_CHARS: 2000,
+    MAX_CHARS: 1200, // Reduced from 1600
+    MIN_CHARS: 250,  // Reduced from 350
+    OVERLAP_CHARS: 150, // Reduced from 250
+    MAX_CHUNK_CHARS: 1500, // Reduced from 2000
     preserveIRAC: false,
     preserveStatuteSections: false,
   },
   book: {
-    MAX_CHARS: 1600,
-    MIN_CHARS: 350,
-    OVERLAP_CHARS: 250,
-    MAX_CHUNK_CHARS: 2000,
+    MAX_CHARS: 1200, // Reduced from 1600
+    MIN_CHARS: 250,  // Reduced from 350
+    OVERLAP_CHARS: 150, // Reduced from 250
+    MAX_CHUNK_CHARS: 1500, // Reduced from 2000
     preserveIRAC: false,
     preserveStatuteSections: false,
   },
   commentary: {
-    MAX_CHARS: 1500,
-    MIN_CHARS: 300,
-    OVERLAP_CHARS: 200,
-    MAX_CHUNK_CHARS: 1900,
+    MAX_CHARS: 1100, // Reduced from 1500
+    MIN_CHARS: 200,  // Reduced from 300
+    OVERLAP_CHARS: 150, // Reduced from 200
+    MAX_CHUNK_CHARS: 1400, // Reduced from 1900
     preserveIRAC: false,
     preserveStatuteSections: false,
   },
   // Default for unknown types
   default: {
-    MAX_CHARS: 1500,
-    MIN_CHARS: 300,
-    OVERLAP_CHARS: 200,
-    MAX_CHUNK_CHARS: 1800,
+    MAX_CHARS: 1100, // Reduced from 1500
+    MIN_CHARS: 200,  // Reduced from 300
+    OVERLAP_CHARS: 150, // Reduced from 200
+    MAX_CHUNK_CHARS: 1400, // Reduced from 1800
     preserveIRAC: false,
     preserveStatuteSections: false,
   },
@@ -703,8 +703,8 @@ export async function POST(req: NextRequest) {
           metadata?: ChunkMetadata
         }> = []
 
-        // Process pages in parallel batches of 5 for memory efficiency
-        const PAGE_BATCH_SIZE = 5
+        // Process pages in parallel batches of 10 for better performance
+        const PAGE_BATCH_SIZE = 10
         for (let pageStart = 1; pageStart <= pdf.numPages; pageStart += PAGE_BATCH_SIZE) {
           const pageEnd = Math.min(pageStart + PAGE_BATCH_SIZE - 1, pdf.numPages)
           const pagePromises = []

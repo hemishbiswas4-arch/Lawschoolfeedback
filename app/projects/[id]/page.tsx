@@ -420,13 +420,18 @@ export default function ProjectPage() {
     const results = []
 
     try {
-      // Upload files individually to avoid payload size limits
-      for (const fileData of filesToUpload) {
-        const result = await uploadSingleFile(fileData, user, sourceTitle.trim())
-        results.push(result)
+      // Upload files in parallel with concurrency control to avoid overwhelming the server
+      const CONCURRENCY_LIMIT = 3 // Match backend concurrency limit
+      const fileBatches: typeof filesToUpload[] = []
+      for (let i = 0; i < filesToUpload.length; i += CONCURRENCY_LIMIT) {
+        fileBatches.push(filesToUpload.slice(i, i + CONCURRENCY_LIMIT))
+      }
 
-        // Add small delay between uploads to avoid overwhelming the server
-        await new Promise(resolve => setTimeout(resolve, 500))
+      for (const batch of fileBatches) {
+        const batchResults = await Promise.all(
+          batch.map(fileData => uploadSingleFile(fileData, user, sourceTitle.trim()))
+        )
+        results.push(...batchResults)
       }
 
       const successfulUploads = results.filter(r => r.success)
