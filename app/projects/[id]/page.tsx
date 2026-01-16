@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 
+import { SUPPORTED_SOURCE_TYPES, SOURCE_TYPE_LABELS, SOURCE_TYPE_DESCRIPTIONS, SourceType } from "@/lib/sourceTypes"
+
 /* ================= SOURCE CATEGORY CONFIG ================= */
 
 /**
@@ -23,11 +25,11 @@ const SOURCE_CATEGORIES: {
     description: "Official legal sources that establish or interpret the law",
     recommendation: "Best for comprehensive legal research - include these first",
     options: [
-      { value: "case", label: "Case Law", description: "Court decisions and judgments" },
-      { value: "statute", label: "Statute", description: "Legislation passed by parliament" },
-      { value: "regulation", label: "Regulation", description: "Rules made under statutory authority" },
-      { value: "constitution", label: "Constitution", description: "Foundational legal documents" },
-      { value: "treaty", label: "Treaty", description: "International agreements" },
+      { value: "case", label: SOURCE_TYPE_LABELS.case, description: SOURCE_TYPE_DESCRIPTIONS.case },
+      { value: "statute", label: SOURCE_TYPE_LABELS.statute, description: SOURCE_TYPE_DESCRIPTIONS.statute },
+      { value: "regulation", label: SOURCE_TYPE_LABELS.regulation, description: SOURCE_TYPE_DESCRIPTIONS.regulation },
+      { value: "constitution", label: SOURCE_TYPE_LABELS.constitution, description: SOURCE_TYPE_DESCRIPTIONS.constitution },
+      { value: "treaty", label: SOURCE_TYPE_LABELS.treaty, description: SOURCE_TYPE_DESCRIPTIONS.treaty },
     ],
   },
   {
@@ -35,33 +37,17 @@ const SOURCE_CATEGORIES: {
     description: "Scholarly analysis and interpretation of legal principles",
     recommendation: "Essential for understanding context and scholarly debate",
     options: [
-      { value: "journal_article", label: "Journal Article", description: "Peer-reviewed legal scholarship" },
-      { value: "book", label: "Book", description: "Comprehensive legal treatises" },
-      { value: "commentary", label: "Commentary / Textbook", description: "Explanatory legal texts" },
-      { value: "working_paper", label: "Working Paper", description: "Preliminary scholarly work" },
-      { value: "thesis", label: "Thesis / Dissertation", description: "Academic research papers" },
+      { value: "journal_article", label: SOURCE_TYPE_LABELS.journal_article, description: SOURCE_TYPE_DESCRIPTIONS.journal_article },
+      { value: "book", label: SOURCE_TYPE_LABELS.book, description: SOURCE_TYPE_DESCRIPTIONS.book },
+      { value: "commentary", label: SOURCE_TYPE_LABELS.commentary, description: SOURCE_TYPE_DESCRIPTIONS.commentary },
     ],
   },
   {
-    label: "Policy / Institutional",
-    description: "Government and institutional documents and reports",
-    recommendation: "Important for policy context and institutional perspectives",
+    label: "Other",
+    description: "Additional document types",
+    recommendation: "For sources that don't fit other categories",
     options: [
-      { value: "committee_report", label: "Committee Report", description: "Parliamentary committee findings" },
-      { value: "law_commission_report", label: "Law Commission Report", description: "Official law reform recommendations" },
-      { value: "white_paper", label: "White Paper", description: "Government policy proposals" },
-      { value: "government_report", label: "Government Report", description: "Official government publications" },
-    ],
-  },
-  {
-    label: "Digital / Informal",
-    description: "Contemporary sources from digital and informal channels",
-    recommendation: "Use sparingly for current developments and practical insights",
-    options: [
-      { value: "blog_post", label: "Blog Post", description: "Expert commentary and analysis" },
-      { value: "news_article", label: "News Article", description: "Media coverage of legal issues" },
-      { value: "website", label: "Website", description: "Online legal resources and guides" },
-      { value: "other", label: "Other", description: "Any other relevant source type" },
+      { value: "other", label: SOURCE_TYPE_LABELS.other, description: SOURCE_TYPE_DESCRIPTIONS.other },
     ],
   },
 ]
@@ -93,8 +79,8 @@ export default function ProjectPage() {
   const [loading, setLoading] = useState(true)
 
   /* New source state */
-  const [sourceType, setSourceType] = useState(
-    SOURCE_CATEGORIES[0].options[0].value
+  const [sourceType, setSourceType] = useState<SourceType>(
+    SUPPORTED_SOURCE_TYPES[0]
   )
   const [sourceTitle, setSourceTitle] = useState("")
   const [uploading, setUploading] = useState(false)
@@ -821,7 +807,7 @@ export default function ProjectPage() {
             </label>
             <select
               value={sourceType}
-              onChange={e => setSourceType(e.target.value)}
+              onChange={e => setSourceType(e.target.value as SourceType)}
               disabled={uploading}
               style={{
                 width: "100%",
@@ -833,11 +819,11 @@ export default function ProjectPage() {
                 marginBottom: "8px",
               }}
             >
-              <option value="case">Court Case / Judgment</option>
-              <option value="statute">Law / Statute</option>
-              <option value="journal_article">Academic Article</option>
-              <option value="book">Book or Book Chapter</option>
-              <option value="other">Other Document</option>
+              {SUPPORTED_SOURCE_TYPES.map(type => (
+                <option key={type} value={type}>
+                  {SOURCE_TYPE_LABELS[type]}
+                </option>
+              ))}
             </select>
             <div style={{ fontSize: "12px", color: "#6b7280" }}>
               Choose the most appropriate category for your document

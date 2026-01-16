@@ -20,6 +20,7 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf"
 import crypto from "crypto"
 import nlp from "compromise"
 import natural from "natural"
+import { SUPPORTED_SOURCE_TYPES } from "@/lib/sourceTypes"
 
 /* 🔴 REQUIRED FOR NODE PDFJS */
 ;(pdfjs as any).GlobalWorkerOptions.workerSrc =
@@ -38,7 +39,7 @@ const EMBED_MODEL_ID = "cohere.embed-english-v3"
 const sleep = (ms: number) =>
   new Promise(resolve => setTimeout(resolve, ms))
 
-async function embedWithRetry(text: string, maxRetries = 3): Promise<number[]> {
+async function embedWithRetry(text: string, maxRetries = 8): Promise<number[]> {
   let attempt = 0
   while (attempt < maxRetries) {
     try {
@@ -66,9 +67,14 @@ async function embedWithRetry(text: string, maxRetries = 3): Promise<number[]> {
       return embedding
     } catch (err: any) {
       attempt++
-      if (err?.name === "ThrottlingException" && attempt < maxRetries) {
-        const wait = Math.min(1000 * attempt, 5000)
-        console.warn(`Embedding throttled, retrying in ${wait}ms (attempt ${attempt})`)
+      const isThrottling = err?.name === "ThrottlingException" || err?.code === "ThrottlingException"
+      const isRetryable = isThrottling || err?.name === "ServiceUnavailableException" || err?.code === "InternalServerError"
+
+      if (isRetryable && attempt < maxRetries) {
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, 30s (capped at 30s)
+        const baseWait = 1000
+        const wait = Math.min(baseWait * Math.pow(2, attempt - 1), 30000)
+        console.warn(`AWS Bedrock ${isThrottling ? 'throttled' : 'error'}, retrying in ${wait}ms (attempt ${attempt}/${maxRetries})`)
         await sleep(wait)
         continue
       }
@@ -80,7 +86,7 @@ async function embedWithRetry(text: string, maxRetries = 3): Promise<number[]> {
 
 /* ================= BATCH EMBEDDING ================= */
 
-async function embedBatchWithRetry(texts: string[], maxRetries = 3): Promise<number[][]> {
+async function embedBatchWithRetry(texts: string[], maxRetries = 8): Promise<number[][]> {
   let attempt = 0
   while (attempt < maxRetries) {
     try {
@@ -108,9 +114,14 @@ async function embedBatchWithRetry(texts: string[], maxRetries = 3): Promise<num
       return embeddings
     } catch (err: any) {
       attempt++
-      if (err?.name === "ThrottlingException" && attempt < maxRetries) {
-        const wait = Math.min(1000 * attempt, 5000)
-        console.warn(`Batch embedding throttled, retrying in ${wait}ms (attempt ${attempt})`)
+      const isThrottling = err?.name === "ThrottlingException" || err?.code === "ThrottlingException"
+      const isRetryable = isThrottling || err?.name === "ServiceUnavailableException" || err?.code === "InternalServerError"
+
+      if (isRetryable && attempt < maxRetries) {
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, 30s (capped at 30s)
+        const baseWait = 1000
+        const wait = Math.min(baseWait * Math.pow(2, attempt - 1), 30000)
+        console.warn(`AWS Bedrock batch ${isThrottling ? 'throttled' : 'error'}, retrying in ${wait}ms (attempt ${attempt}/${maxRetries})`)
         await sleep(wait)
         continue
       }
@@ -124,11 +135,15 @@ async function embedBatchWithRetry(texts: string[], maxRetries = 3): Promise<num
 
 async function embedChunksParallel(
   chunks: Array<{ text: string; index: number }>,
-  concurrency = 20, // Further increased for maximum throughput
+  initialConcurrency = 5, // Start conservative to prevent AWS throttling
   batchSize = 96 // Cohere maximum batch size for optimal performance
 ): Promise<Map<number, number[]>> {
   const results = new Map<number, number[]>()
   const errors = new Map<number, Error>()
+
+  // Track throttling events for dynamic rate limiting
+  let throttlingCount = 0
+  let currentConcurrency = initialConcurrency
 
   // Process chunks in batches with concurrency limit
   const processBatch = async (batchChunks: Array<{ text: string; index: number }>) => {
@@ -137,7 +152,18 @@ async function embedChunksParallel(
       batchChunks.forEach((chunk, idx) => {
         results.set(chunk.index, embeddings[idx])
       })
-    } catch (err) {
+    } catch (err: any) {
+      // Check if this was a throttling error
+      const isThrottling = err?.name === "ThrottlingException" || err?.code === "ThrottlingException"
+      if (isThrottling) {
+        throttlingCount++
+        // Reduce concurrency if we see throttling
+        if (currentConcurrency > 1) {
+          currentConcurrency = Math.max(1, Math.floor(currentConcurrency * 0.7))
+          console.warn(`AWS throttling detected, reducing concurrency to ${currentConcurrency}`)
+        }
+      }
+
       // Fallback to individual embedding for failed batch
       console.warn(`Batch embedding failed, falling back to individual embeddings for ${batchChunks.length} chunks`)
       await Promise.all(
@@ -153,21 +179,30 @@ async function embedChunksParallel(
     }
   }
 
-  // Process in parallel batches with concurrency limit
+  // Process in parallel batches with dynamic concurrency limit
   const batches: Array<Array<{ text: string; index: number }>> = []
   for (let i = 0; i < chunks.length; i += batchSize) {
     batches.push(chunks.slice(i, i + batchSize))
   }
 
-  // Process batches with concurrency limit
-  for (let i = 0; i < batches.length; i += concurrency) {
-    const concurrentBatches = batches.slice(i, i + concurrency)
+  // Process batches with adaptive concurrency
+  for (let i = 0; i < batches.length; i += currentConcurrency) {
+    const concurrentBatches = batches.slice(i, i + currentConcurrency)
     await Promise.all(concurrentBatches.map(batch => processBatch(batch)))
+
+    // Gradually increase concurrency if no recent throttling
+    if (throttlingCount === 0 && currentConcurrency < initialConcurrency) {
+      currentConcurrency = Math.min(initialConcurrency, currentConcurrency + 1)
+    }
   }
 
   // Log any errors but don't fail completely
   if (errors.size > 0) {
     console.warn(`Failed to embed ${errors.size} chunks out of ${chunks.length}, continuing with ${results.size} successful embeddings...`)
+  }
+
+  if (throttlingCount > 0) {
+    console.warn(`Encountered ${throttlingCount} throttling events during embedding`)
   }
 
   return results
@@ -474,6 +509,21 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Validate source type is supported
+    if (!SUPPORTED_SOURCE_TYPES.includes(type as any)) {
+      return NextResponse.json(
+        {
+          error: `Unsupported source type: ${type}`,
+          errorCode: "INVALID_TYPE",
+          suggestions: [
+            "Please select a valid source type from the dropdown menu",
+            `Supported types: ${SUPPORTED_SOURCE_TYPES.join(", ")}`
+          ]
+        },
+        { status: 400 }
+      )
+    }
+
     if (!titleBase || !titleBase.trim()) {
       return NextResponse.json(
         {
@@ -537,7 +587,14 @@ export async function POST(req: NextRequest) {
       await Promise.all(batch.map(async (file) => {
         let sourceId: string | null = null
 
+        // Add timeout wrapper for each file processing
+        const fileTimeout = setTimeout(() => {
+          console.error(`[UPLOAD] File ${file.name} processing timeout after 240 seconds`)
+        }, 240000) // 4 minutes per file
+
         try {
+          console.log(`[UPLOAD] Starting processing for ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)`)
+
           // Enhanced file validation
           if (file.type !== "application/pdf") {
             throw {
@@ -703,8 +760,8 @@ export async function POST(req: NextRequest) {
           metadata?: ChunkMetadata
         }> = []
 
-        // Process pages in parallel batches of 15 for maximum performance
-        const PAGE_BATCH_SIZE = 15
+        // Process pages in parallel batches of 8 for balanced performance
+        const PAGE_BATCH_SIZE = 8
         for (let pageStart = 1; pageStart <= pdf.numPages; pageStart += PAGE_BATCH_SIZE) {
           const pageEnd = Math.min(pageStart + PAGE_BATCH_SIZE - 1, pdf.numPages)
           const pagePromises = []
@@ -759,13 +816,22 @@ export async function POST(req: NextRequest) {
 
         /* ================= BATCH EMBED ALL CHUNKS IN PARALLEL ================= */
 
-        console.log(`Processing ${allChunks.length} chunks (larger chunks = fewer embeddings)...`)
+        console.log(`[UPLOAD] Starting embedding for ${allChunks.length} chunks from ${file.name}...`)
+        const startTime = Date.now()
+
         const chunksForEmbedding = allChunks.map((c, idx) => ({
           text: c.text,
           index: idx,
         }))
 
-        const embeddingMap = await embedChunksParallel(chunksForEmbedding)
+        try {
+          const embeddingMap = await embedChunksParallel(chunksForEmbedding)
+          const embeddingTime = Date.now() - startTime
+          console.log(`[UPLOAD] Embedding completed in ${embeddingTime}ms for ${file.name}`)
+
+          if (embeddingMap.size !== allChunks.length) {
+            console.warn(`[UPLOAD] Only ${embeddingMap.size}/${allChunks.length} chunks embedded successfully for ${file.name}`)
+          }
 
         /* ================= BATCH INSERT ALL CHUNKS ================= */
 
@@ -803,20 +869,60 @@ export async function POST(req: NextRequest) {
 
         // Insert in batches of 1000 for better performance with smaller chunks
         const BATCH_SIZE = 1000
+        let metadataColumnExists = true // Assume it exists initially
+
         for (let i = 0; i < chunksToInsert.length; i += BATCH_SIZE) {
           const batch = chunksToInsert.slice(i, i + BATCH_SIZE)
+
+          // Prepare batch data, conditionally including metadata_json
+          const batchData = metadataColumnExists ? batch : batch.map(chunk => {
+            const { metadata_json, ...chunkWithoutMetadata } = chunk
+            return chunkWithoutMetadata
+          })
+
           const { error: insertError } = await supabaseAdmin
             .from("source_chunks")
-            .insert(batch)
+            .insert(batchData)
 
           if (insertError) {
-            console.error(`Failed to insert batch ${i / BATCH_SIZE + 1}:`, insertError)
-            // Try individual inserts as fallback
-            for (const chunk of batch) {
-              try {
-                await supabaseAdmin.from("source_chunks").insert(chunk)
-              } catch (err) {
-                console.error(`Failed to insert chunk ${chunk.chunk_index}:`, err)
+            // Check if error is about missing metadata_json column
+            const isMetadataColumnError = insertError.message?.includes("metadata_json") ||
+                                         insertError.code === 'PGRST204'
+
+            if (isMetadataColumnError && metadataColumnExists) {
+              console.warn(`[UPLOAD] metadata_json column not found, retrying without metadata for ${file.name}`)
+              metadataColumnExists = false
+
+              // Retry this batch without metadata_json
+              const batchWithoutMetadata = batch.map(chunk => {
+                const { metadata_json, ...chunkWithoutMetadata } = chunk
+                return chunkWithoutMetadata
+              })
+
+              const { error: retryError } = await supabaseAdmin
+                .from("source_chunks")
+                .insert(batchWithoutMetadata)
+
+              if (retryError) {
+                console.error(`Failed to insert batch ${i / BATCH_SIZE + 1} even without metadata:`, retryError)
+                // Try individual inserts as final fallback
+                for (const chunk of batchWithoutMetadata) {
+                  try {
+                    await supabaseAdmin.from("source_chunks").insert(chunk)
+                  } catch (err) {
+                    console.error(`Failed to insert chunk ${chunk.chunk_index}:`, err)
+                  }
+                }
+              }
+            } else {
+              console.error(`Failed to insert batch ${i / BATCH_SIZE + 1}:`, insertError)
+              // Try individual inserts as fallback
+              for (const chunk of batchData) {
+                try {
+                  await supabaseAdmin.from("source_chunks").insert(chunk)
+                } catch (err) {
+                  console.error(`Failed to insert chunk ${chunk.chunk_index}:`, err)
+                }
               }
             }
           }
@@ -831,12 +937,14 @@ export async function POST(req: NextRequest) {
           .update({ status: "complete" })
           .eq("id", source.id)
 
+        clearTimeout(fileTimeout)
         results.push({
           fileName: file.name,
           sourceId: source.id,
           status: "ok",
         })
         } catch (err: any) {
+          clearTimeout(fileTimeout)
           console.error("UPLOAD ✗ file failed:", file.name, err)
 
           if (sourceId) {

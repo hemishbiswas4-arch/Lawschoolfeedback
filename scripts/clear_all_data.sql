@@ -79,7 +79,7 @@ DELETE FROM document_comments;
 -- =======================================================
 -- Note: Storage cleanup must be done via Supabase Dashboard or API
 -- SQL cannot directly delete storage files
--- 
+--
 -- To clear storage buckets:
 -- 1. Go to Supabase Dashboard > Storage
 -- 2. Delete files from "sources" bucket
