@@ -943,7 +943,6 @@ export async function POST(req: NextRequest) {
           sourceId: source.id,
           status: "ok",
         })
-        }
         } catch (err: any) {
           clearTimeout(fileTimeout)
           console.error("UPLOAD ✗ file failed:", file.name, err)
