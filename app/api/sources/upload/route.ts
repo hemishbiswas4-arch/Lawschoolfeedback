@@ -943,8 +943,8 @@ export async function POST(req: NextRequest) {
           sourceId: source.id,
           status: "ok",
         })
-        }
-        } catch (err: any) {
+      }
+      catch (err: any) {
           clearTimeout(fileTimeout)
           console.error("UPLOAD ✗ file failed:", file.name, err)
 
@@ -982,10 +982,39 @@ export async function POST(req: NextRequest) {
             ],
           })
         }
-      }))
+      } catch (err: any) {
+        console.error("UPLOAD ✗ embedding failed:", file.name, err)
+        clearTimeout(fileTimeout)
+
+        if (sourceId) {
+          try {
+            await supabaseAdmin
+              .from("project_sources")
+              .update({ status: "failed" })
+              .eq("id", sourceId)
+          } catch (updateErr) {
+            console.error("Failed to update source status:", updateErr)
+          }
+        }
+
+        results.push({
+          fileName: file.name,
+          status: "failed",
+          error: err?.message ?? "Embedding failed",
+          errorCode: err?.errorCode || "EMBEDDING_ERROR",
+          suggestions: err?.suggestions || [
+            "Try uploading the file again",
+            "Check file size and content",
+            "If the problem persists, contact support"
+          ],
+        })
+      }
+
     }
+    ))
 
     console.log("UPLOAD ✓ batch complete")
+  }
     return NextResponse.json({ ok: true, results })
   } catch (err: any) {
     console.error("UPLOAD ✗ fatal", err)
