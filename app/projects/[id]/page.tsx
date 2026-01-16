@@ -295,12 +295,12 @@ export default function ProjectPage() {
     setSources(prev => [optimisticSource, ...prev])
     setUploadProgress(prev => ({ ...prev, [fileId]: 5 }))
 
-    // Simulate progress
+    // Simulate progress (faster updates for better UX)
     let progressValue = 5
     const progressInterval = setInterval(() => {
-      progressValue = Math.min(progressValue + 2, 90)
+      progressValue = Math.min(progressValue + 3, 85) // Faster progress, leave more room for actual completion
       setUploadProgress(prev => ({ ...prev, [fileId]: progressValue }))
-    }, 500)
+    }, 400)
 
     try {
       // Upload single file
@@ -421,7 +421,7 @@ export default function ProjectPage() {
 
     try {
       // Upload files in parallel with concurrency control to avoid overwhelming the server
-      const CONCURRENCY_LIMIT = 3 // Match backend concurrency limit
+      const CONCURRENCY_LIMIT = 5 // Increased for better throughput
       const fileBatches: typeof filesToUpload[] = []
       for (let i = 0; i < filesToUpload.length; i += CONCURRENCY_LIMIT) {
         fileBatches.push(filesToUpload.slice(i, i + CONCURRENCY_LIMIT))
@@ -1073,9 +1073,18 @@ export default function ProjectPage() {
           {/* UPLOAD PROGRESS */}
           {uploading && selectedFiles.length > 0 && (
             <div style={{ marginBottom: "24px" }}>
-              <h4 style={{ fontSize: "16px", fontWeight: 600, color: "#374151", marginBottom: "16px" }}>
-                Upload Progress
-              </h4>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+                <h4 style={{ fontSize: "16px", fontWeight: 600, color: "#374151", margin: 0 }}>
+                  Upload Progress
+                </h4>
+                <div style={{ fontSize: "14px", color: "#6b7280" }}>
+                  {(() => {
+                    const completedFiles = selectedFiles.filter(({ id }) => uploadProgress[id] === 100).length
+                    const failedFiles = Object.keys(uploadErrors).length
+                    return `${completedFiles}/${selectedFiles.length} files processed${failedFiles > 0 ? ` • ${failedFiles} failed` : ''}`
+                  })()}
+                </div>
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {selectedFiles.map(({ file, id }) => {
                   const progress = uploadProgress[id] || 0

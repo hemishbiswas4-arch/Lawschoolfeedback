@@ -124,7 +124,7 @@ async function embedBatchWithRetry(texts: string[], maxRetries = 3): Promise<num
 
 async function embedChunksParallel(
   chunks: Array<{ text: string; index: number }>,
-  concurrency = 15, // Increased for better throughput with smaller chunks
+  concurrency = 20, // Further increased for maximum throughput
   batchSize = 96 // Cohere maximum batch size for optimal performance
 ): Promise<Map<number, number[]>> {
   const results = new Map<number, number[]>()
@@ -527,7 +527,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Process files in parallel with concurrency limit for better performance
-    const CONCURRENCY_LIMIT = 3 // Process 3 files at a time to balance speed and memory
+    const CONCURRENCY_LIMIT = 5 // Process 5 files at a time for optimal throughput
     const fileBatches: File[][] = []
     for (let i = 0; i < files.length; i += CONCURRENCY_LIMIT) {
       fileBatches.push(files.slice(i, i + CONCURRENCY_LIMIT))
@@ -703,8 +703,8 @@ export async function POST(req: NextRequest) {
           metadata?: ChunkMetadata
         }> = []
 
-        // Process pages in parallel batches of 10 for better performance
-        const PAGE_BATCH_SIZE = 10
+        // Process pages in parallel batches of 15 for maximum performance
+        const PAGE_BATCH_SIZE = 15
         for (let pageStart = 1; pageStart <= pdf.numPages; pageStart += PAGE_BATCH_SIZE) {
           const pageEnd = Math.min(pageStart + PAGE_BATCH_SIZE - 1, pdf.numPages)
           const pagePromises = []
@@ -801,8 +801,8 @@ export async function POST(req: NextRequest) {
             })
             .filter((c): c is NonNullable<typeof c> => c !== null)
 
-        // Insert in batches of 500 to avoid payload size limits
-        const BATCH_SIZE = 500
+        // Insert in batches of 1000 for better performance with smaller chunks
+        const BATCH_SIZE = 1000
         for (let i = 0; i < chunksToInsert.length; i += BATCH_SIZE) {
           const batch = chunksToInsert.slice(i, i + BATCH_SIZE)
           const { error: insertError } = await supabaseAdmin
