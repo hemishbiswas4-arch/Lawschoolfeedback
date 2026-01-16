@@ -1,6 +1,6 @@
 -- =======================================================
 -- FIX RLS POLICIES FOR UPLOAD FUNCTIONALITY
--- Run this in Supabase SQL Editor to fix upload issues (just to push)
+-- Run this in Supabase SQL Editor to fix upload issues (just to push1)
 -- =======================================================
 
 -- Enable RLS on the tables
