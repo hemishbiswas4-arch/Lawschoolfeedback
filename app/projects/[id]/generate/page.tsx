@@ -74,6 +74,7 @@ export default function GenerateProjectPage() {
     queue_mode_active: boolean
     total_queue_length: number
   } | null>(null)
+  const [diversityAssessment, setDiversityAssessment] = useState<any>(null)
 
   // Cache key for generation results
   const generationCacheKey = projectId && queryText ?
@@ -191,6 +192,7 @@ export default function GenerateProjectPage() {
               setEvidenceIndex(parsedGeneration.evidence_index)
               setCitationQualityScore(parsedGeneration.citation_quality_score || null)
               setCoverageAnalysis(parsedGeneration.coverage_analysis || null)
+              setDiversityAssessment(parsedGeneration.diversity_assessment || null)
               setLoadedFromCache(true)
 
               // Load selectedApproach from cache if not already set from URL params
@@ -293,7 +295,20 @@ export default function GenerateProjectPage() {
         })
 
         if (!res.ok) {
-          const errorText = await res.text()
+          let errorText = ""
+          let errorDetails = null
+
+          try {
+            errorText = await res.text()
+            // Try to parse as JSON for structured error details
+            try {
+              errorDetails = JSON.parse(errorText)
+            } catch {
+              // Not JSON, use as plain text
+            }
+          } catch {
+            errorText = "Unable to read error response"
+          }
 
           // Handle authentication errors
           if (res.status === 401) {
@@ -313,6 +328,23 @@ export default function GenerateProjectPage() {
           // Handle queue timeout
           if (res.status === 504 && errorText.includes("timed out in queue")) {
             throw new Error("Request timed out in queue. The system is experiencing high load. Please try again in a few minutes.")
+          }
+
+          // Handle internal server errors with detailed information
+          if (res.status === 500) {
+            const detailedError = {
+              message: "Internal server error during generation",
+              status: res.status,
+              details: errorDetails || errorText,
+              timestamp: new Date().toISOString(),
+              request: {
+                project_id: projectId,
+                query_length: queryText?.length || 0,
+                approach_selected: !!selectedApproach,
+                word_limit: wordLimitParam
+              }
+            }
+            throw new Error(JSON.stringify(detailedError, null, 2))
           }
 
           throw new Error(`Generation failed: ${res.status} ${errorText}`)
@@ -363,6 +395,7 @@ export default function GenerateProjectPage() {
         setEvidenceIndex(json.evidence_index)
         setCitationQualityScore(json.citation_quality_score || null)
         setCoverageAnalysis(json.coverage_analysis || null)
+        setDiversityAssessment(json.diversity_assessment || null)
         setLoadedFromCache(false)
 
         // Cache the generation results in sessionStorage
@@ -400,7 +433,24 @@ export default function GenerateProjectPage() {
         
         setError(null)
       } catch (err: any) {
-        setError(err?.message ?? "Server unavailable")
+        console.error("Generation error:", err)
+
+        // Enhanced error information
+        const errorInfo = {
+          message: err?.message || "Unknown error occurred",
+          name: err?.name || "Error",
+          stack: err?.stack,
+          timestamp: new Date().toISOString(),
+          userAgent: typeof window !== "undefined" ? window.navigator.userAgent : "Server",
+          url: typeof window !== "undefined" ? window.location.href : "Server-side"
+        }
+
+        // For network errors, timeouts, etc.
+        if (err?.name === "TypeError" && err?.message?.includes("fetch")) {
+          errorInfo.message = "Network error: Unable to connect to the generation service. Please check your internet connection and try again."
+        }
+
+        setError(JSON.stringify(errorInfo, null, 2))
       } finally {
         setLoading(false)
       }
@@ -453,10 +503,79 @@ export default function GenerateProjectPage() {
   if (error && !reasoning) {
     const isBusyError = error.includes("Generation is currently busy") || error.includes("Please try again in 5 minutes")
 
+    // Try to parse structured error details
+    let errorDetails = null
+    try {
+      errorDetails = JSON.parse(error)
+    } catch {
+      // Not JSON, use as plain text
+    }
+
     return (
       <div style={{ padding: "80px", color: "#b91c1c" }}>
         <h2>{isBusyError ? "Generation In Progress" : "Unable to Generate Project"}</h2>
-        <p style={{ fontSize: "16px", marginBottom: "16px" }}>{error}</p>
+
+        {errorDetails ? (
+          // Structured error display
+          <div style={{ marginBottom: "24px" }}>
+            <div style={{
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: "8px",
+              padding: "16px",
+              marginBottom: "16px"
+            }}>
+              <div style={{ fontSize: "16px", fontWeight: "bold", marginBottom: "8px" }}>
+                {errorDetails.message}
+              </div>
+              <div style={{ fontSize: "14px", color: "#7f1d1d" }}>
+                Status: {errorDetails.status} | Time: {errorDetails.timestamp}
+              </div>
+            </div>
+
+            {errorDetails.details && (
+              <div style={{ marginBottom: "16px" }}>
+                <h3 style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}>
+                  Error Details:
+                </h3>
+                <div style={{
+                  background: "#1f2937",
+                  color: "#f9fafb",
+                  padding: "12px",
+                  borderRadius: "6px",
+                  fontFamily: "monospace",
+                  fontSize: "12px",
+                  overflow: "auto",
+                  maxHeight: "300px"
+                }}>
+                  {typeof errorDetails.details === 'string'
+                    ? errorDetails.details
+                    : JSON.stringify(errorDetails.details, null, 2)}
+                </div>
+              </div>
+            )}
+
+            {errorDetails.request && (
+              <div style={{ marginBottom: "16px" }}>
+                <h3 style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "8px" }}>
+                  Request Information:
+                </h3>
+                <div style={{
+                  background: "#f3f4f6",
+                  padding: "12px",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontFamily: "monospace"
+                }}>
+                  {JSON.stringify(errorDetails.request, null, 2)}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          // Plain text error display
+          <p style={{ fontSize: "16px", marginBottom: "16px" }}>{error}</p>
+        )}
         {isBusyError && (
           <div style={{
             background: "#fef3c7",
@@ -749,10 +868,10 @@ export default function GenerateProjectPage() {
                     </span>
                   )}
                   {coverageAnalysis.source_diversity && (
-                    <span style={{ 
-                      color: coverageAnalysis.source_diversity >= 70 ? "#059669" : 
+                    <span style={{
+                      color: coverageAnalysis.source_diversity >= 70 ? "#059669" :
                             coverageAnalysis.source_diversity >= 40 ? "#d97706" : "#dc2626",
-                      borderLeft: "1px solid #d1d5db", 
+                      borderLeft: "1px solid #d1d5db",
                       paddingLeft: "12px",
                       fontWeight: 500,
                     }}>
@@ -760,6 +879,45 @@ export default function GenerateProjectPage() {
                     </span>
                   )}
                 </>
+              )}
+            </div>
+          )}
+
+          {diversityAssessment && (
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "12px",
+              padding: "6px 10px",
+              background: diversityAssessment.metrics?.overallDiversityScore >= 75 ? "#f0fdf4" :
+                         diversityAssessment.metrics?.overallDiversityScore >= 50 ? "#fefce8" : "#fef2f2",
+              border: `1px solid ${diversityAssessment.metrics?.overallDiversityScore >= 75 ? "#bbf7d0" :
+                                diversityAssessment.metrics?.overallDiversityScore >= 50 ? "#fde047" : "#fecaca"}`,
+              borderRadius: "4px",
+              fontSize: "12px",
+            }}>
+              <span>
+                <strong>Diversity Score:</strong>{" "}
+                <span style={{
+                  fontWeight: "bold",
+                  color: diversityAssessment.metrics?.overallDiversityScore >= 75 ? "#16a34a" :
+                         diversityAssessment.metrics?.overallDiversityScore >= 50 ? "#ca8a04" : "#dc2626"
+                }}>
+                  {diversityAssessment.metrics?.overallDiversityScore || 0}/100
+                </span>
+              </span>
+              <span style={{ color: "#6b7280", borderLeft: "1px solid #d1d5db", paddingLeft: "12px" }}>
+                Sources: <strong style={{ color: "#374151" }}>{diversityAssessment.metrics?.totalSources || 0}</strong>
+              </span>
+              {diversityAssessment.rewards?.totalReward !== undefined && (
+                <span style={{
+                  color: diversityAssessment.rewards.totalReward >= 0 ? "#059669" : "#dc2626",
+                  borderLeft: "1px solid #d1d5db",
+                  paddingLeft: "12px",
+                  fontWeight: 500,
+                }}>
+                  Reward: {diversityAssessment.rewards.totalReward > 0 ? '+' : ''}{diversityAssessment.rewards.totalReward}
+                </span>
               )}
             </div>
           )}

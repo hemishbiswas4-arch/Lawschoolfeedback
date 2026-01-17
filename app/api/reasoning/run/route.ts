@@ -1418,7 +1418,39 @@ Apply the following diversity corrections:
     evidenceToSourceMap.set(chunk.id, chunk.source_id)
   }
 
-  const diversityAssessment = assessDiversityInsurance(reasoningOutput, sourceMetadata, evidenceToSourceMap)
+  console.log("Diversity Assessment Debug:", {
+    sourcesCount: sourceMetadata.length,
+    chunksCount: boundedChunks.length,
+    evidenceIdsCount: Object.keys(evidenceIndex).length,
+    sectionsCount: reasoningOutput.sections.length,
+    paragraphsCount: reasoningOutput.sections.reduce((sum, s) => sum + s.paragraphs.length, 0),
+    citationsCount: reasoningOutput.sections.reduce((sum, s) =>
+      sum + s.paragraphs.reduce((pSum, p) => pSum + (p.citations?.length || 0), 0), 0)
+  })
+
+  let diversityAssessment
+  try {
+    diversityAssessment = assessDiversityInsurance(reasoningOutput, sourceMetadata, evidenceToSourceMap)
+  } catch (assessmentError: any) {
+    log(runId, "DIVERSITY_ASSESSMENT_FAILED", {
+      error: assessmentError?.message || "Unknown assessment error"
+    }, "ERROR")
+
+    // Create a fallback assessment that doesn't trigger regeneration
+    diversityAssessment = {
+      metrics: {
+        overallDiversityScore: 50,
+        totalSources: 1,
+        maxSourceCitationPercentage: 100
+      },
+      rewards: {
+        totalReward: 0,
+        recommendations: ["Diversity assessment failed - using fallback values"]
+      },
+      assessment: "Diversity assessment failed",
+      shouldRegenerate: false
+    }
+  }
 
   log(runId, "DIVERSITY_ASSESSMENT", {
     diversity_score: diversityAssessment.metrics.overallDiversityScore,
@@ -1437,11 +1469,23 @@ Apply the following diversity corrections:
       recommendations: diversityAssessment.rewards.recommendations
     })
 
-    // Mark this as a regeneration attempt to prevent infinite loops
-    const regenerationParams = { ...params, regeneration_attempt: true }
+    try {
+      // Mark this as a regeneration attempt to prevent infinite loops
+      const regenerationParams = { ...params, regeneration_attempt: true }
 
-    // Re-run generation with diversity feedback
-    return await executeGeneration(regenerationParams)
+      // Re-run generation with diversity feedback
+      return await executeGeneration(regenerationParams)
+    } catch (regenError: any) {
+      log(runId, "REGENERATION_FAILED", {
+        error: regenError?.message || "Unknown regeneration error",
+        original_diversity_score: diversityAssessment.metrics.overallDiversityScore
+      }, "WARN")
+
+      // Fall back to original output if regeneration fails
+      log(runId, "USING_ORIGINAL_OUTPUT_AFTER_REGENERATION_FAILURE", {
+        diversity_score: diversityAssessment.metrics.overallDiversityScore
+      }, "WARN")
+    }
   }
 
   /* ================= EVIDENCE INDEX ================= */

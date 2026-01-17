@@ -118,8 +118,11 @@ export function evaluateDiversityMetrics(
       // Count citations per source
       for (const citation of paragraph.citations || []) {
         const sourceId = evidenceToSource.get(citation.evidence_id)
-        if (sourceId) {
+        if (sourceId && sourceId.trim()) {
           citationCounts.set(sourceId, (citationCounts.get(sourceId) || 0) + 1)
+        } else {
+          // Log missing mapping for debugging (optional)
+          console.warn(`Diversity assessment: No source mapping found for evidence ID ${citation.evidence_id}`)
         }
       }
     }
@@ -155,8 +158,16 @@ export function evaluateDiversityMetrics(
 
   // Calculate percentages
   const citationPercentages: Record<string, number> = {}
-  for (const [sourceId, citations] of Object.entries(sourceCitationCounts)) {
-    citationPercentages[sourceId] = totalCitations > 0 ? (citations / totalCitations) * 100 : 0
+  if (totalCitations > 0) {
+    for (const [sourceId, citations] of Object.entries(sourceCitationCounts)) {
+      citationPercentages[sourceId] = (citations / totalCitations) * 100
+    }
+  } else {
+    // If no citations, assign equal percentages to all sources
+    const equalPercentage = sourceCitationCounts.length > 0 ? 100 / sourceCitationCounts.length : 0
+    for (const sourceId of Object.keys(sourceCitationCounts)) {
+      citationPercentages[sourceId] = equalPercentage
+    }
   }
 
   // Calculate concentration metrics
@@ -271,9 +282,10 @@ function calculateGiniCoefficient(values: number[]): number {
     sum += (i + 1) * sorted[i]
   }
 
-  const mean = sorted.reduce((a, b) => a + b, 0) / n
-  if (mean === 0) return 0
+  const total = sorted.reduce((a, b) => a + b, 0)
+  if (total === 0) return 0
 
+  const mean = total / n
   return (2 * sum) / (n * n * mean) - (n + 1) / n
 }
 

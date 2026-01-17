@@ -131,14 +131,57 @@ export function testDiversityRewardSystem() {
   goodAssessment.rewards.recommendations.forEach(rec => console.log(`- ${rec}`))
   console.log()
 
-  console.log("=== DIVERSITY REWARD SYSTEM TEST COMPLETE ===")
+  console.log("=== DIVERSITY REWARD SYSTEM TEST COMPLETE ===\n")
+
+  // Run edge case tests
+  testEdgeCases()
+}
+
+// Test edge cases
+export function testEdgeCases() {
+  console.log("=== EDGE CASE TESTS ===\n")
+
+  // Test with no citations
+  const noCitationsOutput = {
+    sections: [{
+      section_index: 1,
+      title: "Test",
+      paragraphs: [{
+        paragraph_index: 1,
+        text: "Some text without citations",
+        evidence_ids: ["chunk1", "chunk2"],
+        citations: []
+      }]
+    }]
+  }
+
+  try {
+    const noCitationsAssessment = assessDiversityInsurance(noCitationsOutput, sourceMetadata, evidenceToSourceMap)
+    console.log("No citations test passed:", noCitationsAssessment.metrics.overallDiversityScore)
+  } catch (error) {
+    console.error("No citations test failed:", error)
+  }
+
+  // Test with empty output
+  const emptyOutput = {
+    sections: []
+  }
+
+  try {
+    const emptyAssessment = assessDiversityInsurance(emptyOutput, sourceMetadata, evidenceToSourceMap)
+    console.log("Empty output test passed:", emptyAssessment.metrics.overallDiversityScore)
+  } catch (error) {
+    console.error("Empty output test failed:", error)
+  }
+
+  console.log("=== EDGE CASE TESTS COMPLETE ===\n")
 }
 
 // Example usage in production code:
 /*
 import { assessDiversityInsurance } from '@/lib/reasoning/diversityRewardSystem'
 
-const assessment = assessDiversityInsurance(reasoningOutput, sourceMetadata)
+const assessment = assessDiversityInsurance(reasoningOutput, sourceMetadata, evidenceToSourceMap)
 
 if (assessment.shouldRegenerate) {
   // Trigger regeneration with diversity feedback
