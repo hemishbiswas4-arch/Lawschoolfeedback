@@ -1421,7 +1421,6 @@ Apply the following diversity corrections:
   console.log("Diversity Assessment Debug:", {
     sourcesCount: sourceMetadata.length,
     chunksCount: boundedChunks.length,
-    evidenceIdsCount: Object.keys(evidenceIndex).length,
     sectionsCount: reasoningOutput.sections.length,
     paragraphsCount: reasoningOutput.sections.reduce((sum, s) => sum + s.paragraphs.length, 0),
     citationsCount: reasoningOutput.sections.reduce((sum, s) =>
