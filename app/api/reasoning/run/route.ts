@@ -14,6 +14,7 @@ import {
   InvokeModelWithResponseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime"
 import { buildReasoningPrompt } from "@/lib/reasoning/buildReasoningPrompt"
+import { assessDiversityInsurance } from "@/lib/reasoning/diversityRewardSystem"
 import crypto from "crypto"
 
 /* ================= ENV / CLIENTS ================= */
@@ -895,6 +896,7 @@ type GenerationParams = {
   approach?: any
   project: { id: string; owner_id: string; project_type: string; title: string }
   rawChunks: any[] // Pre-retrieved chunks
+  regeneration_attempt?: boolean // Flag to prevent infinite regeneration loops
 }
 
 async function executeGeneration(params: GenerationParams): Promise<{
@@ -903,6 +905,7 @@ async function executeGeneration(params: GenerationParams): Promise<{
   source_coverage: any
   citation_quality_score: number
   coverage_analysis: any
+  diversity_assessment: any
 }> {
   const { runId, user_id, project_id, query_text, word_limit, approach, project, rawChunks } = params
 
@@ -1269,6 +1272,18 @@ async function executeGeneration(params: GenerationParams): Promise<{
   })
 
   /* ================= CONTEXT-AWARE PROMPT GENERATION ================= */
+  // Include diversity rewards in the prompt for initial generation
+  const diversityRewardsText = params.regeneration_attempt
+    ? `
+DIVERSITY REGENERATION MODE:
+This is a regeneration attempt due to poor source diversity in the initial output.
+Apply the following diversity corrections:
+- Distribute citations more evenly across sources
+- Reduce reliance on dominant sources
+- Incorporate more sources into your analysis
+- Balance primary law sources with secondary sources`
+    : ""
+
   const prompt = buildReasoningPrompt({
     query_text,
     chunks: boundedChunks.map(c => ({
@@ -1284,6 +1299,7 @@ async function executeGeneration(params: GenerationParams): Promise<{
     source_types: sourceTypeDistribution,
     source_details: sources?.map(s => ({ id: s.id, type: s.type, title: s.title })) || [],
     word_limit: effectiveWordLimit,
+    diversity_rewards: diversityRewardsText,
   })
 
   const genRes = await sendWithRetry(
@@ -1388,6 +1404,46 @@ async function executeGeneration(params: GenerationParams): Promise<{
   /* ================= COMPREHENSIVE SOURCE COVERAGE & QUALITY ================= */
   const source_coverage = checkSourceCoverage(boundedChunks, reasoningOutput, runId)
 
+  /* ================= DIVERSITY INSURANCE ASSESSMENT ================= */
+  // Create source metadata and evidence-to-source mapping for diversity assessment
+  const sourceMetadata = sources?.map(s => ({
+    id: s.id,
+    type: s.type,
+    title: s.title
+  })) || []
+
+  // Create mapping from evidence IDs (chunk IDs) to source IDs
+  const evidenceToSourceMap = new Map<string, string>()
+  for (const chunk of boundedChunks) {
+    evidenceToSourceMap.set(chunk.id, chunk.source_id)
+  }
+
+  const diversityAssessment = assessDiversityInsurance(reasoningOutput, sourceMetadata, evidenceToSourceMap)
+
+  log(runId, "DIVERSITY_ASSESSMENT", {
+    diversity_score: diversityAssessment.metrics.overallDiversityScore,
+    total_reward: diversityAssessment.rewards.totalReward,
+    sources_used: diversityAssessment.metrics.totalSources,
+    max_concentration: diversityAssessment.metrics.maxSourceCitationPercentage.toFixed(1) + "%",
+    should_regenerate: diversityAssessment.shouldRegenerate,
+    recommendations: diversityAssessment.rewards.recommendations
+  })
+
+  // Diversity insurance: regenerate if diversity is critically low
+  if (diversityAssessment.shouldRegenerate && params.regeneration_attempt !== true) {
+    log(runId, "DIVERSITY_REGENERATION_TRIGGERED", {
+      diversity_score: diversityAssessment.metrics.overallDiversityScore,
+      max_concentration: diversityAssessment.metrics.maxSourceCitationPercentage,
+      recommendations: diversityAssessment.rewards.recommendations
+    })
+
+    // Mark this as a regeneration attempt to prevent infinite loops
+    const regenerationParams = { ...params, regeneration_attempt: true }
+
+    // Re-run generation with diversity feedback
+    return await executeGeneration(regenerationParams)
+  }
+
   /* ================= EVIDENCE INDEX ================= */
   const evidenceIndex: Record<string, EvidenceMeta> = {}
   for (const c of boundedChunks) {
@@ -1405,6 +1461,7 @@ async function executeGeneration(params: GenerationParams): Promise<{
     source_coverage,
     citation_quality_score: source_coverage.quality_score,
     coverage_analysis: source_coverage.coverage_details,
+    diversity_assessment: diversityAssessment,
   }
 }
 

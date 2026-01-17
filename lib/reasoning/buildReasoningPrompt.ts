@@ -64,6 +64,7 @@ type BuildReasoningPromptInput = {
   source_types?: Record<string, number>
   source_details?: SourceDetail[]
   word_limit?: number
+  diversity_rewards?: string
 }
 
 export function buildReasoningPrompt({
@@ -74,6 +75,7 @@ export function buildReasoningPrompt({
   source_types = {},
   source_details = [],
   word_limit,
+  diversity_rewards,
 }: BuildReasoningPromptInput): string {
   if (!chunks || chunks.length === 0) {
     throw new Error("No evidence chunks provided")
@@ -408,6 +410,7 @@ Your task is to construct a rigorous, argumentative academic research output tha
 PROJECT TYPE: ${projectTypeContext}
 ${sourceContext}${sourceDetailsContext}
 ${approachContext ? `\n${approachContext}` : ""}
+${diversity_rewards ? `\n${diversity_rewards}` : ""}
 
 ---------------------------------------------
 CORE CONSTRAINTS (ABSOLUTE)
@@ -416,11 +419,33 @@ CORE CONSTRAINTS (ABSOLUTE)
 - You may NOT use prior knowledge, training data, or general doctrine unless it is explicitly contained in the evidence.
 - You may NOT invent facts, interpretations, or citations.
 - Every paragraph MUST advance a clear analytical claim grounded in academic methodology.
-- Every paragraph MUST cite at least one evidence ID.
+- Every major claim MUST be supported by evidence from at least one chunk, though not every paragraph requires explicit citation.
 - Evidence IDs MUST be chosen ONLY from the bracketed IDs provided below.
 - Evidence IDs MUST be copied EXACTLY as shown (they are opaque identifiers).
 - You MUST respect the output schema EXACTLY.
 - Output MUST be valid JSON and nothing else.
+
+---------------------------------------------
+DIVERSITY INSURANCE REWARD SYSTEM
+---------------------------------------------
+Your citation distribution will be evaluated for diversity and balance. Points are awarded/deducted as follows:
+
+DIVERSITY TARGETS FOR MAXIMUM REWARD (+25 possible points):
+- Cite from at least 3 different sources (+10 points)
+- No single source provides more than 30% of citations (+10 points)
+- Balance primary law (30-70%) with secondary sources (+5 points)
+- Even citation distribution across all sources (+5 points bonus)
+
+CONCENTRATION PENALTIES:
+- -5 points if any source exceeds 30% of citations
+- -10 points if any source exceeds 40% of citations
+- -20 points if any source exceeds 50% of citations
+
+RECOMMENDATIONS FOR HIGH SCORES:
+- Distribute citations evenly across available sources
+- Balance foundational primary law with interpretive secondary sources
+- Avoid over-reliance on statutes/cases at expense of scholarly analysis
+- Use multiple sources to build synthetic arguments
 
 ---------------------------------------------
 EVIDENCE SELECTION METHODOLOGY
@@ -430,11 +455,26 @@ The evidence provided has been selected using Maximal Marginal Relevance (MMR) t
 - DIVERSITY: Chunks represent different perspectives, sources, and source types
 - BALANCED COVERAGE: No single source dominates; evidence is distributed across available sources
 
+GENERATION-TIME SOURCE DIVERSITY REQUIREMENTS:
+- DISTRIBUTE citations across multiple sources throughout your analysis
+- AVOID heavy reliance on any single source - synthesize insights from multiple perspectives
+- When possible, use different sources to support different aspects of your argument
+- Primary law sources (statutes, cases, regulations) should be balanced with secondary sources (scholarship, commentary)
+- A well-supported argument draws from multiple evidentiary foundations
+
+SYNTHESIS OVER DEPTH PRINCIPLES:
+- Prioritize breadth of source engagement over exhaustive analysis of individual sources
+- Construct arguments that weave together insights from multiple sources rather than deeply analyzing single sources
+- Use different sources to support complementary aspects of your analysis
+- Create synthetic scholarly arguments that demonstrate engagement across the evidence base
+- Balance foundational primary law sources with interpretive secondary sources
+
 This means you should:
 - LEVERAGE the diversity by incorporating multiple perspectives in your analysis
 - SYNTHESIZE across source types (e.g., connect case law with statutory provisions)
 - AVOID over-relying on any single source when alternatives exist
 - USE the varied evidence to build comprehensive, well-supported arguments
+- ENSURE no single source provides more than 30-40% of your total citations
 
 ---------------------------------------------
 ACADEMIC SCHOLARSHIP REQUIREMENTS (CRITICAL)
@@ -455,13 +495,14 @@ Each section MUST begin with a clear thesis statement that establishes the analy
 
 Each paragraph MUST:
 - Begin from an identifiable analytical position or claim situated within broader scholarly discourse
-- Use one or more evidence chunks to:
-  - support that claim through rigorous analysis,
-  - qualify it with contextual nuance,
-  - contrast it with alternative scholarly positions, or
+- Be grounded in the evidence chunks provided, though not every claim requires explicit citation
+- Use evidence chunks strategically to:
+  - support major claims through rigorous analysis,
+  - qualify arguments with contextual nuance,
+  - contrast alternative scholarly positions, or
   - expose theoretical tensions or doctrinal evolution between sources
-- Include INLINE CITATIONS in the text using bracketed references like [Source A, p. 15] or [Case v. Case, 2023]
-- Explicitly explain WHY the cited evidence supports the argument being made, connecting it to established scholarly frameworks
+- Include INLINE CITATIONS selectively where they add significant scholarly value or support key claims
+- When citing, explain WHY the cited evidence supports the argument being made, connecting it to established scholarly frameworks
 - Demonstrate methodological rigor by showing how evidence contributes to theoretical understanding
 ${approach?.argumentation_line?.approach
   ? `- Follow the ${approach.argumentation_line.approach} approach as outlined in the selected argumentation line`
@@ -472,12 +513,16 @@ You MUST NOT:
 - Produce generic synthesis without situating arguments within scholarly discourse
 - Treat evidence as background context rather than building blocks of academic argument
 - Present claims without methodological justification or theoretical grounding
+- Rely excessively on any single source - distribute citations and analysis across multiple sources
 
 You MAY:
 - Build cumulative arguments across multiple paragraphs that develop a coherent scholarly narrative
 - Return to the same evidence chunk in different argumentative contexts to show theoretical complexity
 - Place different chunks in dialogue with one another to illuminate scholarly debates
 - Employ academic transitions that connect ideas within broader theoretical frameworks
+- Develop arguments that synthesize multiple sources without citing every source in every paragraph
+- Use evidence foundationally to support overall analysis without exhaustive per-paragraph citation
+- Distribute analytical attention across sources rather than concentrating on one or two sources
 ${approach?.combined_lines && approach.combined_lines.length > 1 ? `
 COMBINED APPROACH INTEGRATION:
 Since you are implementing a combined approach, you should:
@@ -569,12 +614,13 @@ DIGITAL / INFORMAL SOURCES (Contemporary Commentary for Contextual Analysis):
 
 ACADEMIC WEIGHTING AND METHODOLOGICAL GUIDANCE (CRITICAL):
 - MANDATORY: When statutes, treaties, conventions, or regulations are available, you MUST integrate them as foundational elements of your scholarly argument, demonstrating their role in legal theory and doctrine.
-- Statutes and Regulations: These represent positive law and administrative theory. If present, they should be cited early and frequently to establish the doctrinal framework of your analysis.
+- Statutes and Regulations: These represent positive law and administrative theory. If present, they should be cited strategically to establish the doctrinal framework of your analysis.
 - Treaties and Conventions: These are sources of international legal theory. If present, they must be cited to demonstrate international legal frameworks and obligations.
 - Prioritize primary law sources for establishing legal propositions, then use academic sources to provide theoretical interpretation, critique, and scholarly positioning.
 - Employ academic sources to situate your analysis within broader scholarly debates, theoretical frameworks, and doctrinal development.
 - Reference policy sources to demonstrate real-world application and institutional perspectives within scholarly discourse.
-- Balance source types to create a comprehensive scholarly argument, ensuring primary law sources provide the doctrinal foundation while academic sources enable theoretical depth.
+- BALANCE source usage throughout your analysis - avoid over-reliance on any single source by distributing citations across the available evidence base.
+- A strong scholarly argument demonstrates breadth of engagement with multiple sources rather than depth from a single source.
 
 ---------------------------------------------
 ACADEMIC EVIDENCE METHODOLOGY (CRITICAL)
@@ -603,12 +649,14 @@ You MAY:
 - Weight primary law sources as foundational elements of legal theory and doctrine
 - Employ academic sources to construct theoretical frameworks and scholarly critique
 - Integrate adjacent chunks from statutes/treaties/regulations as unified doctrinal propositions
+- Develop synthetic arguments that draw from multiple sources without exhaustive citation of each
 
 You MUST:
 - Integrate statutes, regulations, treaties, and conventions as foundational doctrinal elements when they appear in the evidence
 - Prioritize primary law sources for establishing legal propositions while using academic sources for theoretical interpretation
 - Ensure statutes and regulations are prominently featured as doctrinal foundations when available in the evidence
 - When using a chunk from a statute/treaty/regulation, systematically consider adjacent chunks from the same source for comprehensive doctrinal context
+- DISTRIBUTE evidentiary support across multiple sources rather than concentrating citations from single sources
 
 You MAY NOT:
 - Infer theoretical propositions beyond the explicit scholarly content of a chunk
@@ -627,9 +675,9 @@ EVIDENCE (READ-ONLY — FIXED)
 ${evidenceSection}
 
 ---------------------------------------------
-ACADEMIC CITATION METHODOLOGY (CRITICAL)
+ACADEMIC CITATION METHODOLOGY (STRATEGIC)
 ---------------------------------------------
-You MUST employ rigorous academic citation practices to ensure scholarly transparency, theoretical traceability, and intellectual accountability:
+Employ strategic academic citation practices to ensure scholarly transparency while maintaining natural argumentative flow. Citations should support key claims without overwhelming the analysis:
 
 1. INLINE CITATION FORMAT: Use bracketed references within the paragraph text following academic conventions:
    - [Author, Year, p. Page] for scholarly sources (journal articles, books, working papers)
@@ -638,40 +686,48 @@ You MUST employ rigorous academic citation practices to ensure scholarly transpa
    - [Treaty Name, Article] for international legal instruments
    - [Institution, Year, p. Page] for policy and institutional sources
 
-2. CITATION PLACEMENT AND SCHOLARLY INTEGRATION: Place citations immediately after the relevant theoretical claim or empirical evidence they support:
+2. CITATION PLACEMENT AND SCHOLARLY INTEGRATION: Place citations strategically to support major theoretical claims:
    - "The doctrinal framework establishes that judicial review requires substantive engagement with legislative intent [Smith v. Jones, 2023]."
    - "Section 5 of the statute provides the theoretical foundation for regulatory authority [Communications Act § 5]."
    - "The leading scholarly commentary suggests that this interpretation aligns with constitutional theory [Blackstone, 2022, p. 45]."
 
-3. MULTIPLE SOURCE SYNTHESIS: When multiple sources converge on a theoretical point:
+3. CITATION EFFICIENCY PRINCIPLES:
+   - Cite strategically rather than exhaustively - focus on key evidentiary support
+   - Allow arguments to build cumulatively across paragraphs without requiring citation in each
+   - Use citations to introduce new sources or support novel claims
+   - Avoid redundant citations of the same source for similar points
+
+4. MULTIPLE SOURCE SYNTHESIS: When multiple sources converge on a theoretical point:
    - "This doctrinal interpretation is supported by both positive law and judicial reasoning [Tax Code § 102; Johnson v. IRS, 2021]."
 
-4. THEORETICAL DIALOGUE THROUGH CITATION: When sources represent different scholarly positions:
+5. THEORETICAL DIALOGUE THROUGH CITATION: When sources represent different scholarly positions:
    - "While the district court adopted a narrow doctrinal interpretation [Smith v. State, 2020], the appellate court developed a more expansive theoretical framework [Smith v. State, 2022]."
 
-5. CITATION FOR SCHOLARLY POSITIONING: Use citations to situate your argument within academic discourse:
+6. CITATION FOR SCHOLARLY POSITIONING: Use citations to situate your argument within academic discourse:
    - "This analysis builds upon established constitutional theory [Blackstone, 2022] while extending the doctrinal framework to contemporary challenges."
 
 ---------------------------------------------
-GRANULAR CITATION REQUIREMENTS (CRITICAL)
+GRANULAR CITATION REQUIREMENTS (STRATEGIC)
 ---------------------------------------------
-You MUST provide granular citations indicating exactly how evidence is used:
+Provide granular citations for transparency while allowing flexibility in citation density:
 
 1. For DIRECT QUOTES: When you quote text verbatim from a chunk, you MUST:
    - Include the exact quoted text in the "direct_quotes" array
    - Specify the character position range within the chunk where the quote appears
    - Mark the usage_type as "direct"
 
-2. For SUBSTANTIAL USE: When you paraphrase, summarize, or substantially rely on content from a chunk (even if not quoted), you MUST:
+2. For SUBSTANTIAL USE: When you paraphrase, summarize, or substantially rely on specific content from a chunk, you SHOULD:
    - Include the relevant text excerpt or key phrase in "substantial_uses"
    - Specify the character position range within the chunk
    - Mark the usage_type as "substantial"
 
-3. For GENERAL REFERENCE: When a chunk informs your argument but isn't directly quoted or substantially used, mark usage_type as "reference"
+3. For GENERAL REFERENCE: When a chunk informs your argument more broadly without specific quoting or substantial reliance, mark usage_type as "reference"
 
 4. Character positions: Each chunk's content starts at position 0. When citing, provide the start and end character positions (0-indexed) within that chunk's content where the cited text appears.
 
 5. Multiple citations: A single paragraph may cite the same chunk multiple times with different quotes/uses - include each as a separate citation entry.
+
+6. CITATION EFFICIENCY: Not every paragraph requires granular citations. Focus detailed citation tracking on key evidentiary claims.
 
 Example citation structure:
 - If chunk [abc123] contains: "The court held that the statute applies broadly."
@@ -717,17 +773,18 @@ Return ONLY valid JSON in the following exact scholarly structure:
 
 ACADEMIC CITATION RULES FOR SCHOLARLY INTEGRITY:
 - Include bracketed citations like [Smith v. Jones, 2023] or [Tax Code § 5] within the paragraph text to maintain scholarly transparency
-- Place citations immediately after the theoretical claim or empirical evidence they support to enable academic verification
+- Place citations strategically to support key theoretical claims and enable academic verification
 - Use the "Citation Abbrev" provided for each chunk to create readable inline citations that facilitate scholarly engagement
 - Ensure citations are integrated naturally into the academic prose flow while maintaining methodological rigor
 
 ACADEMIC CITATION ACCOUNTABILITY RULES:
 - Every evidence_id in "evidence_ids" MUST have at least one corresponding entry in "citations" to ensure complete scholarly traceability
 - If you directly quote from a chunk, usage_type MUST be "direct" and quoted_text MUST contain the exact quote to preserve scholarly accuracy
-- If you substantially rely on a chunk's content for theoretical analysis, usage_type MUST be "substantial" and excerpt MUST contain the relevant text to demonstrate methodological grounding
-- If a chunk informs your scholarly argument but isn't directly quoted or substantially used, usage_type can be "reference" and quoted_text/excerpt can be null
-- Character positions (char_start, char_end) MUST accurately reflect where the cited text appears within the chunk's content to enable scholarly verification
+- If you substantially rely on a chunk's content for theoretical analysis, usage_type SHOULD be "substantial" and excerpt SHOULD contain the relevant text to demonstrate methodological grounding
+- If a chunk informs your scholarly argument more broadly, usage_type can be "reference" and quoted_text/excerpt can be null
+- Character positions (char_start, char_end) SHOULD accurately reflect where the cited text appears within the chunk's content to enable scholarly verification
 - Character positions are 0-indexed (first character is at position 0) following computational academic standards
+- Focus detailed citation tracking on key evidentiary claims rather than requiring exhaustive documentation
 
 ---------------------------------------------
 ACADEMIC INTEGRITY PROHIBITIONS (ENFORCED)
